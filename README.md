@@ -2,7 +2,7 @@
 
 Nuclear Data Services MCP server — offline SQLite-backed nuclear physics data for AI agents.
 
-Provides 12 tools covering atomic masses (AME2020), nuclear properties (NUBASE2020), charge radii (IAEA + laser spectroscopy), energy levels and gamma transitions (ENSDF), and bibliographic references.
+Provides 12 tools covering atomic masses (AME2020), nuclear properties (NUBASE2020), charge radii (IAEA + laser spectroscopy), energy levels and gamma transitions (ENSDF), light nuclei resonance data (TUNL, A=3–20), and bibliographic references.
 
 ## Quick Start
 
@@ -98,6 +98,7 @@ The server communicates over stdin/stdout (MCP protocol). Diagnostic messages go
 | IAEA (Angeli & Marinova 2013) | `charge_radii` | RMS charge radii |
 | Li et al. 2021 | `laser_radii`, `laser_radii_refs` | Laser spectroscopy charge radii with per-isotope references |
 | ENSDF | `ensdf_levels`, `ensdf_gammas`, `ensdf_decay_feedings`, `ensdf_datasets`, `ensdf_references` | Nuclear structure: levels, gamma transitions, decay feedings |
+| TUNL | `tunl_levels` | Light nuclei (A=3–20) energy levels, resonance widths, isospin, decay modes (59 nuclides, 2512 levels) |
 
 ## Tools
 
@@ -111,7 +112,7 @@ The server communicates over stdin/stdout (MCP protocol). Diagnostic messages go
 | `nds_get_decay` | Decay info: half-life, spin/parity, decay modes (NUBASE2020) |
 | `nds_get_charge_radius` | Nuclear charge radii with laser spectroscopy provenance |
 | `nds_search` | Search nuclides by property range (half-life, mass excess) |
-| `nds_query_levels` | Nuclear energy levels from ENSDF |
+| `nds_query_levels` | Nuclear energy levels from ENSDF + TUNL (auto-merged for A ≤ 20, with `source` discriminator) |
 | `nds_query_gammas` | Gamma-ray transitions from ENSDF |
 | `nds_query_decay_feedings` | Beta/EC decay feeding patterns from ENSDF |
 | `nds_lookup_reference` | ENSDF/NSR bibliographic references |
@@ -178,6 +179,7 @@ Raw data files needed in `--data-dir`:
 - `charge_radii.csv` — IAEA charge radii
 - `laser_radii/Radii.tex` — Li et al. 2021 laser spectroscopy radii
 - `ensdf/ensdf.001` ... `ensdf.294` — ENSDF data files
+- `tunl/*.txt` — TUNL energy level tables (pdftotext output from nucldata.tunl.duke.edu)
 
 Download AME/NUBASE from https://www-nds.iaea.org/amdc/.
 
