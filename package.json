@@ -1,0 +1,64 @@
+{
+  "name": "nds-mcp",
+  "version": "0.1.0",
+  "description": "Nuclear Data Services MCP server — offline SQLite-backed nuclear physics data queries",
+  "author": "Feng-Kun Guo",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./tooling": {
+      "import": "./dist/tooling.js",
+      "types": "./dist/tooling.d.ts"
+    }
+  },
+  "bin": {
+    "nds-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "lint": "tsc --noEmit",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "ingest": "tsx src/ingest/buildDb.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.4.0",
+    "vitest": "^4.0.16"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "mcp",
+    "nuclear-data",
+    "nuclear-physics",
+    "sqlite",
+    "ensdf",
+    "tunl",
+    "ame2020",
+    "nubase"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fkguo/nds-mcp.git"
+  }
+}
