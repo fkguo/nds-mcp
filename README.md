@@ -74,8 +74,8 @@ Add to `opencode.json`:
 {
   "mcp": {
     "nds-mcp": {
-      "command": "npx",
-      "args": ["nds-mcp"]
+      "command": ["npx", "nds-mcp"],
+      "type": "local"
     }
   }
 }
