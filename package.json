@@ -18,7 +18,7 @@
     }
   },
   "bin": {
-    "nds-mcp": "./dist/index.js"
+    "nds-mcp": "./bin/nds-mcp.js"
   },
   "files": [
     "dist",
