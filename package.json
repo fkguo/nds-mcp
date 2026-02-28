@@ -1,6 +1,6 @@
 {
   "name": "nds-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Nuclear Data Services MCP server — offline SQLite-backed nuclear physics data queries",
   "author": "Feng-Kun Guo",
   "license": "MIT",

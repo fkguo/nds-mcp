@@ -2,8 +2,8 @@
 
 import './utils/stdioHygiene.js';
 
-import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { realpathSync } from 'fs';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -19,7 +19,7 @@ const TOOL_MODE: ToolExposureMode = process.env.NDS_TOOL_MODE === 'full' ? 'full
 const server = new Server(
   {
     name: 'nds-mcp',
-    version: '0.1.0',
+    version: '0.1.1',
   },
   {
     capabilities: {
@@ -54,7 +54,7 @@ async function main() {
 
 const isExecutedAsScript = (() => {
   try {
-    const entryPath = process.argv[1] ? path.resolve(process.argv[1]) : '';
+    const entryPath = process.argv[1] ? realpathSync(process.argv[1]) : '';
     const modulePath = fileURLToPath(import.meta.url);
     return entryPath === modulePath;
   } catch {
