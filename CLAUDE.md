@@ -24,6 +24,7 @@ Offline SQLite-backed MCP server for nuclear physics data queries.
   `export https_proxy=http://127.0.0.1:7890 http_proxy=http://127.0.0.1:7890 all_proxy=socks5://127.0.0.1:7890`
 - **Cross-source default rule**: If the same physical observable exists in multiple databases/sources, query tools should return source-tagged values from each source by default (and provide a clear recommended/best value only as an additional field, not by silently dropping alternatives).
 - **Docs sync**: Any change to DB files (new DB, schema, contents, download URLs, env vars) must update `README.md` in the same PR.
+- **Release gating (required)**: Every newly included optional DB must have a locally constructed sqlite artifact (e.g. `~/.nds-mcp/ddep.sqlite`) before claiming the step is complete and before uploading release assets.
 
 ## Environment Variables
 

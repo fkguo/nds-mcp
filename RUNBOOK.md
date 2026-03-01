@@ -2,7 +2,9 @@
 
 内部文档：仅供维护者/agent 用于构建与验证数据库；不是 MCP 客户端的“用户手册”。  
 仅保留 agent/运维必需步骤。  
-目标产物：`~/.nds-mcp/{nds.sqlite,jendl5.sqlite,exfor.sqlite}`（`CODATA` 已并入 `nds.sqlite`）。
+目标产物：`~/.nds-mcp/{nds.sqlite,jendl5.sqlite,exfor.sqlite,ddep.sqlite}`（`CODATA` 已并入 `nds.sqlite`）。
+
+发布前硬性要求：每个已接入的可选数据库都必须先本地构造出对应 sqlite 并通过校验，再上传 Release 资产。
 
 ## 1) Preconditions
 
@@ -52,6 +54,12 @@ python3 scripts/build-exfor-from-x4i3.py --limit 120000 --output ~/.nds-mcp/exfo
 
 ```bash
 pnpm run ingest:exfor -- --source /path/to/exfor.sqlite --output ~/.nds-mcp/exfor.sqlite
+```
+
+DDEP 构建（当前支持 JSONL 或标准化 sqlite 导入）：
+
+```bash
+pnpm run ingest:ddep -- --source /path/to/ddep.jsonl --ddep-release 2026-01 --output ~/.nds-mcp/ddep.sqlite
 ```
 
 ## 3) Verification
