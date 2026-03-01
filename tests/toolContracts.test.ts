@@ -16,7 +16,8 @@ describe('NDS MCP tool contracts', () => {
 
   it('getTools returns valid MCP tool definitions', () => {
     const tools = getTools('standard');
-    expect(tools.length).toBe(TOOL_SPECS.length);
+    const standardCount = TOOL_SPECS.filter(spec => spec.exposure === 'standard').length;
+    expect(tools.length).toBe(standardCount);
     for (const tool of tools) {
       expect(tool.name).toBeDefined();
       expect(tool.description).toBeDefined();
@@ -32,5 +33,9 @@ describe('NDS MCP tool contracts', () => {
 
   it('expected tool count', () => {
     expect(TOOL_SPECS.length).toBe(20);
+  });
+
+  it('expected standard-mode tool count', () => {
+    expect(getTools('standard').length).toBe(19);
   });
 });

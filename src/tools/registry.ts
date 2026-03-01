@@ -587,7 +587,7 @@ export const TOOL_SPECS: ToolSpec[] = [
   {
     name: NDS_GET_DDEP_DECAY,
     description: 'Query DDEP radionuclide decay data: source-tagged half-life values and key emission lines (energy/intensity).',
-    exposure: 'standard',
+    exposure: 'full',
     zodSchema: NdsGetDdepDecaySchema,
     handler: async (params) => {
       const dbPath = await ensureDdepDb();

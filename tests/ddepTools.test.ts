@@ -113,7 +113,7 @@ VALUES
       A: 60,
       min_intensity: 0.9,
       limit: 5,
-    });
+    }, 'full');
     expect(result.isError).toBeUndefined();
     const data = JSON.parse(result.content[0]!.text);
     expect(data.Z).toBe(27);

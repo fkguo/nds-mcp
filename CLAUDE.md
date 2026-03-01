@@ -11,7 +11,7 @@ Offline SQLite-backed MCP server for nuclear physics data queries.
 | IAEA | `charge_radii` | RMS charge radii |
 | Li et al. 2021 | `laser_radii`, `laser_radii_refs` | Laser spectroscopy charge radii (21 elements, 257 isotopes) |
 | TUNL | `tunl_levels` | Energy levels for A=3-20 light nuclei: resonance widths, isospin, decay modes |
-| DDEP *(optional, `ddep.sqlite`)* | `ddep_meta`, `ddep_nuclides`, `ddep_radiation` | Evaluated radionuclide half-lives + key emission lines |
+| DDEP *(optional, `ddep.sqlite`, internal)* | `ddep_meta`, `ddep_nuclides`, `ddep_radiation` | Evaluated radionuclide half-lives + key emission lines |
 | CODATA 2022 | `codata_constants`, `codata_meta` | Fundamental constants (value/uncertainty/unit) |
 
 ## Key Conventions

@@ -2,7 +2,7 @@
 
 Nuclear Data Services MCP server — offline SQLite-backed nuclear physics data for AI agents.
 
-Provides 20 tools covering atomic masses (AME2020), nuclear properties (NUBASE2020), charge radii (IAEA + laser spectroscopy), energy levels and gamma transitions (ENSDF), light nuclei resonance data (TUNL, A=3–20), bibliographic references, JENDL-5 decay/cross-section data, EXFOR experimental data, DDEP decay data, and CODATA fundamental constants.
+Provides 19 tools covering atomic masses (AME2020), nuclear properties (NUBASE2020), charge radii (IAEA + laser spectroscopy), energy levels and gamma transitions (ENSDF), light nuclei resonance data (TUNL, A=3–20), bibliographic references, JENDL-5 decay/cross-section data, EXFOR experimental data, and CODATA fundamental constants.
 
 ## Quick Start
 
@@ -13,7 +13,7 @@ npx -y nds-mcp
 The pre-built SQLite database (~85 MB) is automatically downloaded to `~/.nds-mcp/nds.sqlite` on first launch.
 By default it downloads from this repo's GitHub Releases (override via `NDS_DB_DOWNLOAD_URL`).
 
-Optional tools `JENDL-5` / `EXFOR` / `DDEP` use separate SQLite files and are auto-downloaded on demand.
+Optional tools `JENDL-5` / `EXFOR` use separate SQLite files and are auto-downloaded on demand.
 `CODATA` is bundled inside `nds.sqlite`.
 
 ## Databases
@@ -23,15 +23,13 @@ Optional tools `JENDL-5` / `EXFOR` / `DDEP` use separate SQLite files and are au
 | `nds.sqlite` | `~/.nds-mcp/nds.sqlite` | Auto-download on server startup *(required)* | AME2020 masses + reaction Q-values; NUBASE2020 nuclear properties; charge radii (IAEA + Li2021 laser spectroscopy); ENSDF (levels, gammas, decay feedings, references); TUNL light-nuclei resonance/level data (A=3–20); CODATA fundamental constants |
 | `jendl5.sqlite` *(optional)* | `~/.nds-mcp/jendl5.sqlite` | Auto-download on first call to JENDL-5 tools | JENDL-5 decay data + radiation spectra; JENDL-5 pointwise cross sections + ENDF-6 interpolation laws |
 | `exfor.sqlite` *(optional)* | `~/.nds-mcp/exfor.sqlite` | Auto-download on first call to EXFOR tools | EXFOR experimental data points (SIG/MACS/...) + per-entry metadata |
-| `ddep.sqlite` *(optional)* | `~/.nds-mcp/ddep.sqlite` | Auto-download on first call to DDEP tools | DDEP evaluated decay half-lives + key radiation lines (energy/intensity) |
 
-You can always bring your own files by setting `NDS_DB_PATH` / `NDS_JENDL5_DB_PATH` / `NDS_EXFOR_DB_PATH` / `NDS_DDEP_DB_PATH`.
+You can always bring your own files by setting `NDS_DB_PATH` / `NDS_JENDL5_DB_PATH` / `NDS_EXFOR_DB_PATH`.
 
 ### Optional DB auto-download trigger
 
 - `jendl5.sqlite` is downloaded when calling `nds_get_radiation_spectrum`, `nds_get_cross_section_table`, or `nds_interpolate_cross_section`.
 - `exfor.sqlite` is downloaded when calling `nds_search_exfor` or `nds_get_exfor_entry`.
-- `ddep.sqlite` is downloaded when calling `nds_get_ddep_decay`.
 - These optional SQLite assets are published on this repo's GitHub Releases page (latest release assets).
 
 ## Install (Optional)
@@ -148,7 +146,6 @@ The server communicates over stdin/stdout (MCP protocol). Diagnostic messages go
 | JENDL-5 Decay *(optional, `jendl5.sqlite`)* | `jendl5_decays`, `jendl5_decay_modes`, `jendl5_radiation` | Decay data + radiation spectra |
 | JENDL-5 XS *(optional, `jendl5.sqlite`)* | `jendl5_xs_meta`, `jendl5_xs_points`, `jendl5_xs_interp` | Pointwise cross sections + ENDF-6 interpolation laws |
 | EXFOR *(optional, `exfor.sqlite`)* | `exfor_entries`, `exfor_points` | Experimental data points (SIG/MACS/...) |
-| DDEP *(optional, `ddep.sqlite`)* | `ddep_meta`, `ddep_nuclides`, `ddep_radiation` | Evaluated radionuclide half-lives + key emission lines |
 | CODATA 2022 | `codata_constants`, `codata_meta` | Fundamental constants (value/uncertainty/unit, exact/truncated flags) |
 
 ## Masses, Thresholds, and Near-Threshold Resonances (Important)
@@ -183,7 +180,6 @@ The server communicates over stdin/stdout (MCP protocol). Diagnostic messages go
 | `nds_interpolate_cross_section` | ENDF-6 NBT/INT interpolation at one incident energy |
 | `nds_search_exfor` | Search EXFOR data points (supports `quantity=SIG|MACS|...`) |
 | `nds_get_exfor_entry` | Load full EXFOR entry payload by `entry_id` |
-| `nds_get_ddep_decay` | DDEP decay query: source-tagged half-life values + key radiation lines |
 | `nds_get_constant` | Get one CODATA fundamental constant by name |
 | `nds_list_constants` | List CODATA constants with filter and pagination |
 
@@ -234,8 +230,6 @@ This reflects the current cross-source contract: return source-tagged values by 
 | `NDS_JENDL5_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `jendl5.sqlite`. |
 | `NDS_EXFOR_DB_PATH` | `~/.nds-mcp/exfor.sqlite` | Optional EXFOR DB path (Phase 2c tools). |
 | `NDS_EXFOR_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `exfor.sqlite`. |
-| `NDS_DDEP_DB_PATH` | `~/.nds-mcp/ddep.sqlite` | Optional DDEP DB path (DDEP decay tool). |
-| `NDS_DDEP_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `ddep.sqlite`. |
 | `NDS_DB_DOWNLOAD_URL` | GitHub Releases latest | Custom download URL for the SQLite file. |
 | `NDS_TOOL_MODE` | `standard` | Set to `full` to expose all tools. |
 
