@@ -37,6 +37,7 @@
     "ingest:jendl5-dec": "tsx src/index.ts ingest --jendl5-dec",
     "ingest:jendl5-xs": "tsx src/index.ts ingest --jendl5-xs",
     "ingest:exfor": "tsx src/index.ts ingest --exfor",
+    "ingest:ddep": "tsx src/index.ts ingest --ddep",
     "ingest:codata": "tsx src/index.ts ingest --codata"
   },
   "dependencies": {

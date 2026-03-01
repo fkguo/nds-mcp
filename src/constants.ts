@@ -17,6 +17,7 @@ export const NDS_SEARCH_EXFOR = 'nds_search_exfor' as const;
 export const NDS_GET_EXFOR_ENTRY = 'nds_get_exfor_entry' as const;
 export const NDS_GET_CONSTANT = 'nds_get_constant' as const;
 export const NDS_LIST_CONSTANTS = 'nds_list_constants' as const;
+export const NDS_GET_DDEP_DECAY = 'nds_get_ddep_decay' as const;
 
 export type NdsToolName =
   | typeof NDS_FIND_NUCLIDE
@@ -37,4 +38,5 @@ export type NdsToolName =
   | typeof NDS_SEARCH_EXFOR
   | typeof NDS_GET_EXFOR_ENTRY
   | typeof NDS_GET_CONSTANT
-  | typeof NDS_LIST_CONSTANTS;
+  | typeof NDS_LIST_CONSTANTS
+  | typeof NDS_GET_DDEP_DECAY;

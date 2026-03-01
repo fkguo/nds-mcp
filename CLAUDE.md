@@ -11,6 +11,7 @@ Offline SQLite-backed MCP server for nuclear physics data queries.
 | IAEA | `charge_radii` | RMS charge radii |
 | Li et al. 2021 | `laser_radii`, `laser_radii_refs` | Laser spectroscopy charge radii (21 elements, 257 isotopes) |
 | TUNL | `tunl_levels` | Energy levels for A=3-20 light nuclei: resonance widths, isospin, decay modes |
+| DDEP *(optional, `ddep.sqlite`)* | `ddep_meta`, `ddep_nuclides`, `ddep_radiation` | Evaluated radionuclide half-lives + key emission lines |
 | CODATA 2022 | `codata_constants`, `codata_meta` | Fundamental constants (value/uncertainty/unit) |
 
 ## Key Conventions
@@ -19,6 +20,9 @@ Offline SQLite-backed MCP server for nuclear physics data queries.
 - **sqlite3 CLI**: Uses `src/shared/sqlite3Cli.ts` (subprocess, not binding)
 - **No artifact system**: Simpler than pdg-mcp; all results inline
 - **Auto-download**: On first start, downloads pre-built SQLite to `~/.nds-mcp/nds.sqlite`
+- **Network fallback**: If network access fails (download/search/API timeout), try proxy first:
+  `export https_proxy=http://127.0.0.1:7890 http_proxy=http://127.0.0.1:7890 all_proxy=socks5://127.0.0.1:7890`
+- **Cross-source default rule**: If the same physical observable exists in multiple databases/sources, query tools should return source-tagged values from each source by default (and provide a clear recommended/best value only as an additional field, not by silently dropping alternatives).
 - **Docs sync**: Any change to DB files (new DB, schema, contents, download URLs, env vars) must update `README.md` in the same PR.
 
 ## Environment Variables
@@ -28,6 +32,8 @@ Offline SQLite-backed MCP server for nuclear physics data queries.
 | `NDS_DB_PATH` | `~/.nds-mcp/nds.sqlite` | Database path (set to skip auto-download) |
 | `NDS_JENDL5_DB_PATH` | `~/.nds-mcp/jendl5.sqlite` | Optional JENDL-5 DB path (Phase 2a/2b tools) |
 | `NDS_EXFOR_DB_PATH` | `~/.nds-mcp/exfor.sqlite` | Optional EXFOR DB path (Phase 2c tools) |
+| `NDS_DDEP_DB_PATH` | `~/.nds-mcp/ddep.sqlite` | Optional DDEP DB path (DDEP decay tool) |
+| `NDS_DDEP_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `ddep.sqlite` |
 | `NDS_DB_DOWNLOAD_URL` | GitHub Releases latest | Custom download URL for the SQLite file |
 | `NDS_TOOL_MODE` | `standard` | Set to `full` to expose all tools |
 

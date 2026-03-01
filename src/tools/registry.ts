@@ -11,9 +11,11 @@ import { queryDecayFeedings } from '../db/decayFeedings.js';
 import { lookupReference } from '../db/references.js';
 import { ensureJendl5Db, getJendl5DbStatus } from '../db/jendl5Db.js';
 import { ensureExforDb, getExforDbStatus } from '../db/exforDb.js';
+import { ensureDdepDb, getDdepDbStatus } from '../db/ddepDb.js';
 import { queryRadiationSpectrum } from '../db/jendl5RadiationSpec.js';
 import { interpolateCrossSection, queryCrossSectionTable } from '../db/jendl5CrossSection.js';
 import { getExforEntry, searchExfor } from '../db/exfor.js';
+import { queryDdepDecay } from '../db/ddep.js';
 import { getCodataConstant, listCodataConstants } from '../db/codata.js';
 import { invalidParams, notFound, sqlite3JsonQuery } from '../shared/index.js';
 import {
@@ -36,6 +38,7 @@ import {
   NDS_GET_EXFOR_ENTRY,
   NDS_GET_CONSTANT,
   NDS_LIST_CONSTANTS,
+  NDS_GET_DDEP_DECAY,
 } from '../constants.js';
 
 export type ToolExposureMode = 'standard' | 'full';
@@ -264,6 +267,16 @@ const NdsListConstantsSchema = z.object({
   offset: z.number().int().min(0).optional().default(0).describe('Pagination offset'),
 });
 
+const NdsGetDdepDecaySchema = z.object({
+  Z: z.number().int().min(0).describe('Atomic number'),
+  A: z.number().int().min(1).describe('Mass number'),
+  state: z.number().int().min(0).optional().default(0).describe('Isomeric state (0=ground, 1=first isomer, ...)'),
+  radiation_type: z.enum(['gamma', 'xray', 'beta-', 'beta+', 'alpha', 'all']).optional().default('all')
+    .describe('Filter by radiation type'),
+  min_intensity: z.number().min(0).optional().describe('Minimum emission intensity per decay'),
+  limit: z.number().int().min(1).max(500).optional().default(100).describe('Maximum radiation lines to return'),
+});
+
 async function loadKeyValueMeta(dbPath: string, tableName: string): Promise<Record<string, string> | null> {
   try {
     const rows = await sqlite3JsonQuery(dbPath, `SELECT key, value FROM ${tableName}`);
@@ -292,12 +305,14 @@ export const TOOL_SPECS: ToolSpec[] = [
       const mainDb = getMainDbStatus();
       const jendl5Db = getJendl5DbStatus();
       const exforDb = getExforDbStatus();
+      const ddepDb = getDdepDbStatus();
 
       if (mainDb.status !== 'ok' || !mainDb.path) {
         return {
           main_db: mainDb,
           jendl5_db: jendl5Db,
           exfor_db: exforDb,
+          ddep_db: ddepDb,
         };
       }
 
@@ -320,6 +335,10 @@ export const TOOL_SPECS: ToolSpec[] = [
         exfor_db: exforDb,
         exfor_meta: exforDb.status === 'ok' && exforDb.path
           ? await loadKeyValueMeta(exforDb.path, 'exfor_meta')
+          : null,
+        ddep_db: ddepDb,
+        ddep_meta: ddepDb.status === 'ok' && ddepDb.path
+          ? await loadKeyValueMeta(ddepDb.path, 'ddep_meta')
           : null,
         codata_meta: await loadKeyValueMeta(mainDb.path, 'codata_meta'),
       };
@@ -562,6 +581,20 @@ export const TOOL_SPECS: ToolSpec[] = [
       const dbPath = await ensureExforDb();
       const result = await getExforEntry(dbPath, params);
       if (!result) throw notFound(`No EXFOR entry for entry_id=${params.entry_id}`);
+      return result;
+    },
+  },
+  {
+    name: NDS_GET_DDEP_DECAY,
+    description: 'Query DDEP radionuclide decay data: source-tagged half-life values and key emission lines (energy/intensity).',
+    exposure: 'standard',
+    zodSchema: NdsGetDdepDecaySchema,
+    handler: async (params) => {
+      const dbPath = await ensureDdepDb();
+      const result = await queryDdepDecay(dbPath, params);
+      if (!result) {
+        throw notFound(`No DDEP decay data for Z=${params.Z}, A=${params.A}, state=${params.state}`);
+      }
       return result;
     },
   },

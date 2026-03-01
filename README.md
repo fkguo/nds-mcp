@@ -2,7 +2,7 @@
 
 Nuclear Data Services MCP server — offline SQLite-backed nuclear physics data for AI agents.
 
-Provides 19 tools covering atomic masses (AME2020), nuclear properties (NUBASE2020), charge radii (IAEA + laser spectroscopy), energy levels and gamma transitions (ENSDF), light nuclei resonance data (TUNL, A=3–20), bibliographic references, JENDL-5 decay/cross-section data, EXFOR experimental data, and CODATA fundamental constants.
+Provides 20 tools covering atomic masses (AME2020), nuclear properties (NUBASE2020), charge radii (IAEA + laser spectroscopy), energy levels and gamma transitions (ENSDF), light nuclei resonance data (TUNL, A=3–20), bibliographic references, JENDL-5 decay/cross-section data, EXFOR experimental data, DDEP decay data, and CODATA fundamental constants.
 
 ## Quick Start
 
@@ -13,7 +13,7 @@ npx -y nds-mcp
 The pre-built SQLite database (~85 MB) is automatically downloaded to `~/.nds-mcp/nds.sqlite` on first launch.
 By default it downloads from this repo's GitHub Releases (override via `NDS_DB_DOWNLOAD_URL`).
 
-Optional Phase 2 tools `JENDL-5` / `EXFOR` use separate SQLite files and are auto-downloaded on demand.
+Optional tools `JENDL-5` / `EXFOR` / `DDEP` use separate SQLite files and are auto-downloaded on demand.
 `CODATA` is bundled inside `nds.sqlite`.
 
 ## Databases
@@ -23,8 +23,16 @@ Optional Phase 2 tools `JENDL-5` / `EXFOR` use separate SQLite files and are aut
 | `nds.sqlite` | `~/.nds-mcp/nds.sqlite` | Auto-download on server startup *(required)* | AME2020 masses + reaction Q-values; NUBASE2020 nuclear properties; charge radii (IAEA + Li2021 laser spectroscopy); ENSDF (levels, gammas, decay feedings, references); TUNL light-nuclei resonance/level data (A=3–20); CODATA fundamental constants |
 | `jendl5.sqlite` *(optional)* | `~/.nds-mcp/jendl5.sqlite` | Auto-download on first call to JENDL-5 tools | JENDL-5 decay data + radiation spectra; JENDL-5 pointwise cross sections + ENDF-6 interpolation laws |
 | `exfor.sqlite` *(optional)* | `~/.nds-mcp/exfor.sqlite` | Auto-download on first call to EXFOR tools | EXFOR experimental data points (SIG/MACS/...) + per-entry metadata |
+| `ddep.sqlite` *(optional)* | `~/.nds-mcp/ddep.sqlite` | Auto-download on first call to DDEP tools | DDEP evaluated decay half-lives + key radiation lines (energy/intensity) |
 
-You can always bring your own files by setting `NDS_DB_PATH` / `NDS_JENDL5_DB_PATH` / `NDS_EXFOR_DB_PATH`.
+You can always bring your own files by setting `NDS_DB_PATH` / `NDS_JENDL5_DB_PATH` / `NDS_EXFOR_DB_PATH` / `NDS_DDEP_DB_PATH`.
+
+### Optional DB auto-download trigger
+
+- `jendl5.sqlite` is downloaded when calling `nds_get_radiation_spectrum`, `nds_get_cross_section_table`, or `nds_interpolate_cross_section`.
+- `exfor.sqlite` is downloaded when calling `nds_search_exfor` or `nds_get_exfor_entry`.
+- `ddep.sqlite` is downloaded when calling `nds_get_ddep_decay`.
+- These optional SQLite assets are published on this repo's GitHub Releases page (latest release assets).
 
 ## Install (Optional)
 
@@ -140,6 +148,7 @@ The server communicates over stdin/stdout (MCP protocol). Diagnostic messages go
 | JENDL-5 Decay *(optional, `jendl5.sqlite`)* | `jendl5_decays`, `jendl5_decay_modes`, `jendl5_radiation` | Decay data + radiation spectra |
 | JENDL-5 XS *(optional, `jendl5.sqlite`)* | `jendl5_xs_meta`, `jendl5_xs_points`, `jendl5_xs_interp` | Pointwise cross sections + ENDF-6 interpolation laws |
 | EXFOR *(optional, `exfor.sqlite`)* | `exfor_entries`, `exfor_points` | Experimental data points (SIG/MACS/...) |
+| DDEP *(optional, `ddep.sqlite`)* | `ddep_meta`, `ddep_nuclides`, `ddep_radiation` | Evaluated radionuclide half-lives + key emission lines |
 | CODATA 2022 | `codata_constants`, `codata_meta` | Fundamental constants (value/uncertainty/unit, exact/truncated flags) |
 
 ## Masses, Thresholds, and Near-Threshold Resonances (Important)
@@ -174,47 +183,47 @@ The server communicates over stdin/stdout (MCP protocol). Diagnostic messages go
 | `nds_interpolate_cross_section` | ENDF-6 NBT/INT interpolation at one incident energy |
 | `nds_search_exfor` | Search EXFOR data points (supports `quantity=SIG|MACS|...`) |
 | `nds_get_exfor_entry` | Load full EXFOR entry payload by `entry_id` |
+| `nds_get_ddep_decay` | DDEP decay query: source-tagged half-life values + key radiation lines |
 | `nds_get_constant` | Get one CODATA fundamental constant by name |
 | `nds_list_constants` | List CODATA constants with filter and pagination |
 
-## Example: Charge Radii from H to O-16
+## Cross-Source Rule
 
-Query charge radii for light nuclei (Z = 1–8, A ≤ 16), with original measurement references where available from laser spectroscopy data:
+For the same physical observable that exists in multiple sources/databases, tools return source-tagged values from each source by default. Any `recommended` / `best` value is an additional field and does not replace or hide other source values.
 
-| Nuclide | Z | A | r_charge (fm) | unc (fm) | Source | Reference |
-|---------|---|---|:---:|:---:|--------|-----------|
-| ¹H  | 1 | 1  | 0.8783 | 0.0086 | IAEA | — |
-| ²H  | 1 | 2  | 2.1421 | 0.0088 | IAEA | — |
-| ³H  | 1 | 3  | 1.7591 | 0.0363 | IAEA | — |
-| ³He | 2 | 3  | 1.9661 | 0.0030 | IAEA | — |
-| ⁴He | 2 | 4  | 1.6755 | 0.0028 | IAEA | — |
-| ⁶He | 2 | 6  | 2.066  | 0.0111 | IAEA | — |
-| ⁸He | 2 | 8  | 1.9239 | 0.0306 | IAEA | — |
-| ⁶Li | 3 | 6  | 2.589  | 0.039  | IAEA | — |
-| ⁷Li | 3 | 7  | 2.444  | 0.042  | IAEA | — |
-| ⁸Li | 3 | 8  | 2.339  | 0.044  | IAEA | — |
-| ⁹Li | 3 | 9  | 2.245  | 0.046  | IAEA | — |
-| ¹¹Li| 3 | 11 | 2.482  | 0.043  | IAEA | — |
-| ⁷Be | 4 | 7  | 2.646  | 0.016  | IAEA + Laser | Krieger et al., PRL 108 (2012) 142501 |
-| ⁹Be | 4 | 9  | 2.519  | 0.012  | IAEA + Laser | Krieger et al., PRL 108 (2012) 142501 |
-| ¹⁰Be | 4 | 10 | 2.355 | 0.017  | IAEA + Laser | Krieger et al., PRL 108 (2012) 142501 |
-| ¹¹Be | 4 | 11 | 2.463 | 0.015  | IAEA + Laser | Krieger et al., PRL 108 (2012) 142501 |
-| ¹²Be | 4 | 12 | 2.5031| 0.0157 | Laser only | Krieger et al., PRL 108 (2012) 142501 |
-| ¹⁰B | 5 | 10 | 2.4277 | 0.0499 | IAEA | — |
-| ¹¹B | 5 | 11 | 2.406  | 0.0294 | IAEA | — |
-| ¹²C | 6 | 12 | 2.4702 | 0.0022 | IAEA | — |
-| ¹³C | 6 | 13 | 2.4614 | 0.0034 | IAEA | — |
-| ¹⁴C | 6 | 14 | 2.5025 | 0.0087 | IAEA | — |
-| ¹⁴N | 7 | 14 | 2.5582 | 0.0070 | IAEA | — |
-| ¹⁵N | 7 | 15 | 2.6058 | 0.0080 | IAEA | — |
-| ¹⁶O | 8 | 16 | 2.6991 | 0.0052 | IAEA | — |
+## Example: Charge Radii (new source-tagged output)
 
-**Notes:**
-- **IAEA** = Angeli & Marinova, At. Data Nucl. Data Tables 99 (2013) 69
-- **Laser** = Li et al. 2021 compilation of laser spectroscopy charge radii, with per-isotope original measurement references
-- Only **Be isotopes** in this range have laser spectroscopy data (all from Krieger et al. 2012)
-- **¹²Be** has no IAEA entry; its radius comes exclusively from laser spectroscopy
-- Short-lived halo nuclei (⁶He, ⁸He, ¹¹Li) have larger uncertainties from indirect methods
+Use `mode=compare` to get all source-tagged values plus an explicit comparison summary:
+
+```json
+[
+  {
+    "Z": 4,
+    "A": 10,
+    "mode": "compare",
+    "source_values": [
+      {
+        "source_name": "Li et al. laser spectroscopy",
+        "value_fm": 2.355,
+        "uncertainty_fm": 0.017,
+        "unit": "fm"
+      },
+      {
+        "source_name": "IAEA charge radii",
+        "value_fm": 2.355,
+        "uncertainty_fm": 0.017,
+        "unit": "fm"
+      }
+    ],
+    "recommended_source": "Li et al. laser spectroscopy",
+    "recommended_r_charge_fm": 2.355,
+    "recommended_r_charge_unc_fm": 0.017,
+    "max_source_diff_fm": 0
+  }
+]
+```
+
+This reflects the current cross-source contract: return source-tagged values by default, and keep `recommended`/`best` as an additional field.
 
 ## Environment Variables
 
@@ -225,6 +234,8 @@ Query charge radii for light nuclei (Z = 1–8, A ≤ 16), with original measure
 | `NDS_JENDL5_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `jendl5.sqlite`. |
 | `NDS_EXFOR_DB_PATH` | `~/.nds-mcp/exfor.sqlite` | Optional EXFOR DB path (Phase 2c tools). |
 | `NDS_EXFOR_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `exfor.sqlite`. |
+| `NDS_DDEP_DB_PATH` | `~/.nds-mcp/ddep.sqlite` | Optional DDEP DB path (DDEP decay tool). |
+| `NDS_DDEP_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `ddep.sqlite`. |
 | `NDS_DB_DOWNLOAD_URL` | GitHub Releases latest | Custom download URL for the SQLite file. |
 | `NDS_TOOL_MODE` | `standard` | Set to `full` to expose all tools. |
 
