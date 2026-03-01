@@ -12,12 +12,11 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import * as https from 'https';
-import * as http from 'http';
-import { execFileSync } from 'child_process';
-import { pipeline } from 'stream/promises';
 
 import { getNdsDbPathFromEnv, NDS_DB_PATH_ENV } from './ndsDb.js';
+import { downloadFile } from './download.js';
+
+export { hasCurl } from './download.js';
 
 const DEFAULT_DATA_DIR = path.join(os.homedir(), '.nds-mcp');
 const DEFAULT_DB_PATH = path.join(DEFAULT_DATA_DIR, 'nds.sqlite');
@@ -25,78 +24,6 @@ const DEFAULT_DB_PATH = path.join(DEFAULT_DATA_DIR, 'nds.sqlite');
 const DOWNLOAD_URL_ENV = 'NDS_DB_DOWNLOAD_URL';
 const DEFAULT_DOWNLOAD_URL =
   'https://github.com/fkguo/nds-mcp/releases/latest/download/nds.sqlite';
-
-/** Check if curl is available on the system. */
-export function hasCurl(): boolean {
-  try {
-    execFileSync('curl', ['--version'], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Download a file using curl (synchronous).
- * curl natively supports https_proxy / http_proxy environment variables.
- */
-function downloadWithCurl(url: string, destPath: string): void {
-  console.error(`[nds-mcp] Downloading database with curl...`);
-  console.error(`[nds-mcp]   URL: ${url}`);
-  console.error(`[nds-mcp]   Dest: ${destPath}`);
-
-  execFileSync('curl', ['-fSL', '--progress-bar', '-o', destPath, url], {
-    stdio: ['ignore', 'ignore', 'inherit'],
-    timeout: 10 * 60 * 1000, // 10 minutes
-  });
-}
-
-/**
- * Download a file using node:https (async fallback).
- * Handles up to 5 redirects (GitHub Releases 302 → CDN).
- * Does NOT support proxy (known limitation — curl path is preferred).
- */
-async function downloadWithNodeHttps(url: string, destPath: string): Promise<void> {
-  console.error(`[nds-mcp] Downloading database with node:https...`);
-  console.error(`[nds-mcp]   URL: ${url}`);
-  console.error(`[nds-mcp]   Dest: ${destPath}`);
-
-  const MAX_REDIRECTS = 5;
-  let currentUrl = url;
-
-  for (let i = 0; i <= MAX_REDIRECTS; i++) {
-    const response = await new Promise<http.IncomingMessage>((resolve, reject) => {
-      const proto = currentUrl.startsWith('https:') ? https : http;
-      const req = proto.get(currentUrl, resolve);
-      req.on('error', reject);
-      req.setTimeout(10 * 60 * 1000, () => {
-        req.destroy(new Error('Download timed out'));
-      });
-    });
-
-    const status = response.statusCode ?? 0;
-
-    // Handle redirects
-    if (status >= 300 && status < 400 && response.headers.location) {
-      currentUrl = response.headers.location;
-      response.resume(); // drain the response
-      if (i === MAX_REDIRECTS) {
-        throw new Error(`Too many redirects (>${MAX_REDIRECTS})`);
-      }
-      continue;
-    }
-
-    if (status !== 200) {
-      response.resume();
-      throw new Error(`HTTP ${status} from ${currentUrl}`);
-    }
-
-    // Stream to file
-    const fileStream = fs.createWriteStream(destPath);
-    await pipeline(response, fileStream);
-    return;
-  }
-}
 
 /**
  * Ensure the NDS SQLite database is available, downloading it if necessary.
@@ -139,11 +66,7 @@ export async function ensureNdsDb(): Promise<string> {
   const tmpPath = path.join(DEFAULT_DATA_DIR, `nds.sqlite.download.${process.pid}`);
 
   try {
-    if (hasCurl()) {
-      downloadWithCurl(url, tmpPath);
-    } else {
-      await downloadWithNodeHttps(url, tmpPath);
-    }
+    await downloadFile(url, tmpPath, 'main DB');
 
     // Validate: downloaded file must be non-empty
     const stat = fs.statSync(tmpPath);

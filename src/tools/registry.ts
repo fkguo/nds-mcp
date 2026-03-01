@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { zodToMcpInputSchema } from './mcpSchema.js';
-import { requireNdsDbPathFromEnv, getFileMetadata } from '../db/ndsDb.js';
+import { getFileMetadata, getMainDbStatus, requireNdsDbPathFromEnv } from '../db/ndsDb.js';
 import { getMass } from '../db/masses.js';
 import { getSeparationEnergy, getQValue } from '../db/reactions.js';
 import { getDecay, findNuclidesByElement, findNuclideByZA, findNuclidesByA, searchNuclides } from '../db/nubase.js';
@@ -9,6 +9,12 @@ import { queryAllLevels } from '../db/levels.js';
 import { queryGammas } from '../db/gammas.js';
 import { queryDecayFeedings } from '../db/decayFeedings.js';
 import { lookupReference } from '../db/references.js';
+import { ensureJendl5Db, getJendl5DbStatus } from '../db/jendl5Db.js';
+import { ensureExforDb, getExforDbStatus } from '../db/exforDb.js';
+import { queryRadiationSpectrum } from '../db/jendl5RadiationSpec.js';
+import { interpolateCrossSection, queryCrossSectionTable } from '../db/jendl5CrossSection.js';
+import { getExforEntry, searchExfor } from '../db/exfor.js';
+import { getCodataConstant, listCodataConstants } from '../db/codata.js';
 import { invalidParams, notFound, sqlite3JsonQuery } from '../shared/index.js';
 import {
   NDS_FIND_NUCLIDE,
@@ -23,6 +29,13 @@ import {
   NDS_QUERY_GAMMAS,
   NDS_QUERY_DECAY_FEEDINGS,
   NDS_LOOKUP_REFERENCE,
+  NDS_GET_RADIATION_SPECTRUM,
+  NDS_GET_CROSS_SECTION_TABLE,
+  NDS_INTERPOLATE_CROSS_SECTION,
+  NDS_SEARCH_EXFOR,
+  NDS_GET_EXFOR_ENTRY,
+  NDS_GET_CONSTANT,
+  NDS_LIST_CONSTANTS,
 } from '../constants.js';
 
 export type ToolExposureMode = 'standard' | 'full';
@@ -104,6 +117,8 @@ const NdsGetDecaySchema = z.object({
 const NdsGetChargeRadiusSchema = z.object({
   Z: z.number().int().min(0).describe('Atomic number'),
   A: z.number().int().min(1).optional().describe('Mass number (omit for all isotopes of element)'),
+  mode: z.enum(['best', 'all', 'compare']).optional().default('best')
+    .describe('Source selection mode: best (recommended), all (all sources), compare (all + spread)'),
 });
 
 const NdsSearchSchema = z.object({
@@ -157,6 +172,114 @@ const NdsLookupReferenceSchema = z.object({
 }).refine(v => v.keynumber !== undefined || v.A !== undefined,
   { message: 'At least one of keynumber or A must be provided' });
 
+const NdsGetRadiationSpectrumSchema = z.object({
+  Z: z.number().int().min(0).describe('Atomic number'),
+  A: z.number().int().min(1).describe('Mass number'),
+  state: z.number().int().min(0).optional().default(0).describe('Isomeric state (0=ground, 1=first isomer, ...)'),
+  type: z.enum(['gamma', 'beta-', 'beta+', 'alpha', 'xray', 'all']).optional().default('all')
+    .describe('Filter by radiation type'),
+  energy_min_keV: z.number().optional().describe('Minimum energy filter (keV)'),
+  energy_max_keV: z.number().optional().describe('Maximum energy filter (keV)'),
+  min_intensity: z.number().min(0).optional()
+    .describe('Minimum yield per decay. FC is yield per decay and can exceed 1.0.'),
+}).refine(
+  p => p.energy_min_keV === undefined || p.energy_max_keV === undefined || p.energy_min_keV <= p.energy_max_keV,
+  { message: 'energy_min_keV must be <= energy_max_keV' },
+);
+
+const NdsGetCrossSectionTableSchema = z.object({
+  Z: z.number().int().min(0).describe('Atomic number'),
+  A: z.number().int().min(1).describe('Mass number'),
+  state: z.number().int().min(0).optional().default(0).describe('Target isomeric state'),
+  projectile: z.enum(['n', 'p']).optional().default('n'),
+  mt: z.number().int().positive().optional().describe('ENDF-6 MT reaction number'),
+  reaction: z.string().optional().describe('Reaction label like "n,gamma"'),
+  e_min_eV: z.number().positive().optional(),
+  e_max_eV: z.number().positive().optional(),
+  mode: z.enum(['sampled', 'raw']).optional().default('sampled')
+    .describe('"sampled": ENDF interpolation on log grid; "raw": stored points with pagination'),
+  n_points: z.number().int().min(2).max(2000).optional().default(200),
+  limit: z.number().int().min(1).max(5000).optional().default(1000),
+  offset: z.number().int().min(0).optional().default(0),
+}).refine(
+  p => p.mt !== undefined || p.reaction !== undefined,
+  { message: 'At least one of mt or reaction must be provided' },
+).refine(
+  p => p.e_min_eV === undefined || p.e_max_eV === undefined || p.e_min_eV <= p.e_max_eV,
+  { message: 'e_min_eV must be <= e_max_eV' },
+);
+
+const NdsInterpolateCrossSectionSchema = z.object({
+  Z: z.number().int().min(0).describe('Atomic number'),
+  A: z.number().int().min(1).describe('Mass number'),
+  state: z.number().int().min(0).optional().default(0),
+  projectile: z.enum(['n', 'p']).optional().default('n'),
+  mt: z.number().int().positive().optional(),
+  reaction: z.string().optional(),
+  energy_eV: z.number().positive().describe('Incident energy (eV)'),
+}).refine(
+  p => p.mt !== undefined || p.reaction !== undefined,
+  { message: 'At least one of mt or reaction must be provided' },
+);
+
+const NdsSearchExforSchema = z.object({
+  Z: z.number().int().min(0).describe('Target atomic number'),
+  A: z.number().int().min(1).optional().describe('Target mass number'),
+  state: z.number().int().min(0).optional().default(0).describe('Target isomeric state'),
+  projectile: z.enum(['n', 'p', 'g', 'd', 'a', 'h']).optional().default('n'),
+  reaction: z.string().optional().describe('"n,gamma", "n,total", "p,n", etc.'),
+  quantity: z.enum(['SIG', 'MACS', 'DA', 'DE', 'FY']).optional().default('SIG'),
+  e_min_eV: z.number().positive().optional(),
+  e_max_eV: z.number().positive().optional(),
+  kT_min_keV: z.number().positive().optional(),
+  kT_max_keV: z.number().positive().optional(),
+  limit: z.number().int().min(1).max(200).optional().default(20),
+}).refine(
+  p => !(p.quantity === 'MACS' && (p.e_min_eV !== undefined || p.e_max_eV !== undefined)),
+  { message: 'For MACS quantity, use kT_min_keV/kT_max_keV, not e_min_eV/e_max_eV' },
+).refine(
+  p => p.quantity === 'MACS' || (p.kT_min_keV === undefined && p.kT_max_keV === undefined),
+  { message: 'kT_min_keV/kT_max_keV are only valid when quantity=MACS' },
+).refine(
+  p => p.e_min_eV === undefined || p.e_max_eV === undefined || p.e_min_eV <= p.e_max_eV,
+  { message: 'e_min_eV must be <= e_max_eV' },
+).refine(
+  p => p.kT_min_keV === undefined || p.kT_max_keV === undefined || p.kT_min_keV <= p.kT_max_keV,
+  { message: 'kT_min_keV must be <= kT_max_keV' },
+);
+
+const NdsGetExforEntrySchema = z.object({
+  entry_id: z.string().min(1).describe('EXFOR entry number'),
+});
+
+const NdsGetConstantSchema = z.object({
+  name: z.string().min(1).describe('CODATA constant name (e.g. "Planck constant", "speed of light in vacuum")'),
+  case_sensitive: z.boolean().optional().default(false).describe('Whether to require exact case-sensitive name matching'),
+});
+
+const NdsListConstantsSchema = z.object({
+  query: z.string().optional().describe('Keyword filter on constant names'),
+  exact_only: z.boolean().optional().default(false).describe('When true, return only constants with exact CODATA uncertainty'),
+  limit: z.number().int().min(1).max(200).optional().default(50).describe('Maximum results'),
+  offset: z.number().int().min(0).optional().default(0).describe('Pagination offset'),
+});
+
+async function loadKeyValueMeta(dbPath: string, tableName: string): Promise<Record<string, string> | null> {
+  try {
+    const rows = await sqlite3JsonQuery(dbPath, `SELECT key, value FROM ${tableName}`);
+    const meta: Record<string, string> = {};
+    for (const row of rows) {
+      const r = row as { key?: unknown; value?: unknown };
+      if (typeof r.key === 'string' && typeof r.value === 'string') {
+        meta[r.key] = r.value;
+      }
+    }
+    return meta;
+  } catch {
+    return null;
+  }
+}
+
 // ── Tool Specs ────────────────────────────────────────────────────────────
 
 export const TOOL_SPECS: ToolSpec[] = [
@@ -166,15 +289,40 @@ export const TOOL_SPECS: ToolSpec[] = [
     exposure: 'standard',
     zodSchema: NdsInfoSchema,
     handler: async () => {
-      const dbPath = requireNdsDbPathFromEnv();
-      const meta = await sqlite3JsonQuery(dbPath, 'SELECT key, value FROM nds_meta');
+      const mainDb = getMainDbStatus();
+      const jendl5Db = getJendl5DbStatus();
+      const exforDb = getExforDbStatus();
+
+      if (mainDb.status !== 'ok' || !mainDb.path) {
+        return {
+          main_db: mainDb,
+          jendl5_db: jendl5Db,
+          exfor_db: exforDb,
+        };
+      }
+
+      const meta = await sqlite3JsonQuery(mainDb.path, 'SELECT key, value FROM nds_meta');
       const metaMap: Record<string, string> = {};
       for (const row of meta) {
         const r = row as { key: string; value: string };
         metaMap[r.key] = r.value;
       }
-      const fileMeta = await getFileMetadata(dbPath);
-      return { ...metaMap, db_path: dbPath, ...fileMeta };
+      const fileMeta = await getFileMetadata(mainDb.path);
+      return {
+        ...metaMap,
+        db_path: mainDb.path,
+        ...fileMeta,
+        main_db: mainDb,
+        jendl5_db: jendl5Db,
+        jendl5_meta: jendl5Db.status === 'ok' && jendl5Db.path
+          ? await loadKeyValueMeta(jendl5Db.path, 'jendl5_meta')
+          : null,
+        exfor_db: exforDb,
+        exfor_meta: exforDb.status === 'ok' && exforDb.path
+          ? await loadKeyValueMeta(exforDb.path, 'exfor_meta')
+          : null,
+        codata_meta: await loadKeyValueMeta(mainDb.path, 'codata_meta'),
+      };
     },
   },
   {
@@ -273,12 +421,12 @@ export const TOOL_SPECS: ToolSpec[] = [
   },
   {
     name: NDS_GET_CHARGE_RADIUS,
-    description: 'Get nuclear charge radius (rms) from IAEA data, enriched with laser spectroscopy provenance from Li et al. 2021 where available. If A is omitted, returns all isotopes of the element.',
+    description: 'Get nuclear charge radius (rms) with source-aware comparison across IAEA, laser spectroscopy, and CODATA (when available). mode=best|all|compare controls recommendation vs full source list.',
     exposure: 'standard',
     zodSchema: NdsGetChargeRadiusSchema,
     handler: async (params) => {
       const dbPath = requireNdsDbPathFromEnv();
-      const results = await getChargeRadius(dbPath, params.Z, params.A);
+      const results = await getChargeRadius(dbPath, params.Z, params.A, params.mode);
       if (results.length === 0) {
         const msg = params.A !== undefined
           ? `No charge radius data for Z=${params.Z}, A=${params.A}`
@@ -347,6 +495,96 @@ export const TOOL_SPECS: ToolSpec[] = [
         throw notFound(msg);
       }
       return results;
+    },
+  },
+  {
+    name: NDS_GET_RADIATION_SPECTRUM,
+    description: 'Get decay radiation spectra from JENDL-5 Decay (gamma/beta/alpha/X-ray discrete lines and continuous-spectrum summaries).',
+    exposure: 'standard',
+    zodSchema: NdsGetRadiationSpectrumSchema,
+    handler: async (params) => {
+      const dbPath = await ensureJendl5Db();
+      const result = await queryRadiationSpectrum(dbPath, params);
+      if (!result) {
+        throw notFound(`No JENDL-5 decay spectrum for Z=${params.Z}, A=${params.A}, state=${params.state}`);
+      }
+      return result;
+    },
+  },
+  {
+    name: NDS_GET_CROSS_SECTION_TABLE,
+    description: 'Get JENDL-5 pointwise cross-section tables. mode=raw returns tabulated points; mode=sampled interpolates onto a log grid with ENDF-6 NBT/INT rules.',
+    exposure: 'standard',
+    zodSchema: NdsGetCrossSectionTableSchema,
+    handler: async (params) => {
+      const dbPath = await ensureJendl5Db();
+      const result = await queryCrossSectionTable(dbPath, params);
+      if (!result) {
+        throw notFound(`No JENDL-5 cross section for Z=${params.Z}, A=${params.A}, state=${params.state}`);
+      }
+      return result;
+    },
+  },
+  {
+    name: NDS_INTERPOLATE_CROSS_SECTION,
+    description: 'Interpolate JENDL-5 cross section at a specific energy using ENDF-6 NBT/INT segmented interpolation rules.',
+    exposure: 'standard',
+    zodSchema: NdsInterpolateCrossSectionSchema,
+    handler: async (params) => {
+      const dbPath = await ensureJendl5Db();
+      const result = await interpolateCrossSection(dbPath, params);
+      if (!result) {
+        throw notFound(`No JENDL-5 cross section for Z=${params.Z}, A=${params.A}, state=${params.state}`);
+      }
+      return result;
+    },
+  },
+  {
+    name: NDS_SEARCH_EXFOR,
+    description: 'Search EXFOR experimental reaction data points by target/projectile/reaction/quantity (including MACS).',
+    exposure: 'standard',
+    zodSchema: NdsSearchExforSchema,
+    handler: async (params) => {
+      const dbPath = await ensureExforDb();
+      const results = await searchExfor(dbPath, params);
+      if (results.length === 0) {
+        throw notFound(`No EXFOR entries for Z=${params.Z}${params.A !== undefined ? `, A=${params.A}` : ''}`);
+      }
+      return results;
+    },
+  },
+  {
+    name: NDS_GET_EXFOR_ENTRY,
+    description: 'Get one EXFOR entry (all subentries + points) by entry number.',
+    exposure: 'standard',
+    zodSchema: NdsGetExforEntrySchema,
+    handler: async (params) => {
+      const dbPath = await ensureExforDb();
+      const result = await getExforEntry(dbPath, params);
+      if (!result) throw notFound(`No EXFOR entry for entry_id=${params.entry_id}`);
+      return result;
+    },
+  },
+  {
+    name: NDS_GET_CONSTANT,
+    description: 'Get one CODATA fundamental constant by name (case-insensitive by default).',
+    exposure: 'standard',
+    zodSchema: NdsGetConstantSchema,
+    handler: async (params) => {
+      const dbPath = requireNdsDbPathFromEnv();
+      const result = await getCodataConstant(dbPath, params);
+      if (!result) throw notFound(`No CODATA constant matching name=${params.name}`);
+      return result;
+    },
+  },
+  {
+    name: NDS_LIST_CONSTANTS,
+    description: 'List CODATA fundamental constants with optional keyword filtering and pagination.',
+    exposure: 'standard',
+    zodSchema: NdsListConstantsSchema,
+    handler: async (params) => {
+      const dbPath = requireNdsDbPathFromEnv();
+      return listCodataConstants(dbPath, params);
     },
   },
 ];

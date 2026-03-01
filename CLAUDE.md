@@ -11,6 +11,7 @@ Offline SQLite-backed MCP server for nuclear physics data queries.
 | IAEA | `charge_radii` | RMS charge radii |
 | Li et al. 2021 | `laser_radii`, `laser_radii_refs` | Laser spectroscopy charge radii (21 elements, 257 isotopes) |
 | TUNL | `tunl_levels` | Energy levels for A=3-20 light nuclei: resonance widths, isospin, decay modes |
+| CODATA 2022 | `codata_constants`, `codata_meta` | Fundamental constants (value/uncertainty/unit) |
 
 ## Key Conventions
 
@@ -18,12 +19,15 @@ Offline SQLite-backed MCP server for nuclear physics data queries.
 - **sqlite3 CLI**: Uses `src/shared/sqlite3Cli.ts` (subprocess, not binding)
 - **No artifact system**: Simpler than pdg-mcp; all results inline
 - **Auto-download**: On first start, downloads pre-built SQLite to `~/.nds-mcp/nds.sqlite`
+- **Docs sync**: Any change to DB files (new DB, schema, contents, download URLs, env vars) must update `README.md` in the same PR.
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NDS_DB_PATH` | `~/.nds-mcp/nds.sqlite` | Database path (set to skip auto-download) |
+| `NDS_JENDL5_DB_PATH` | `~/.nds-mcp/jendl5.sqlite` | Optional JENDL-5 DB path (Phase 2a/2b tools) |
+| `NDS_EXFOR_DB_PATH` | `~/.nds-mcp/exfor.sqlite` | Optional EXFOR DB path (Phase 2c tools) |
 | `NDS_DB_DOWNLOAD_URL` | GitHub Releases latest | Custom download URL for the SQLite file |
 | `NDS_TOOL_MODE` | `standard` | Set to `full` to expose all tools |
 
@@ -37,6 +41,11 @@ pnpm run ingest -- --data-dir /path/to/raw --output /path/to/nds.sqlite  # Build
 
 ## Database Rebuild
 
+Internal-only: `RUNBOOK.md` is a maintainer/agent SOP (not for MCP client users).
+
+We publish/distribute **SQLite database files** (e.g. `nds.sqlite`, optional `jendl5.sqlite` / `exfor.sqlite`).  
+We do **not** redistribute upstream raw data snapshots (size + upstream terms); maintainers download them from the original sources.
+
 Raw data files needed in `--data-dir`:
 - `mass_1.mas20` — AME2020 mass table
 - `rct1.mas20` — AME2020 reaction energies (S2n, S2p, Qα, Q2β⁻, Qεp, Qβ⁻n)
@@ -45,6 +54,7 @@ Raw data files needed in `--data-dir`:
 - `charge_radii.csv` — IAEA charge radii
 - `laser_radii/Radii.tex` — Li et al. 2021 laser spectroscopy radii (LaTeX source)
 - `tunl/*.txt` — TUNL energy level tables (pdftotext -layout output from nucldata.tunl.duke.edu)
+- `codata/allascii.txt` *(optional)* — CODATA constants source text (if absent, ingest downloads from NIST)
 
 Download from: https://www-nds.iaea.org/amdc/ (add `.txt` to AME/NUBASE filenames)
 

@@ -1,38 +1,27 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { invalidParams } from '../shared/index.js';
+import { describeOptionalDb, resolveOptionalDbPath, resolvePathFromEnv, type OptionalDbStatus } from './dbPathCommon.js';
 
 export const NDS_DB_PATH_ENV = 'NDS_DB_PATH';
+export const DEFAULT_NDS_DB_PATH = path.join(os.homedir(), '.nds-mcp', 'nds.sqlite');
 
 let sha256Cache:
   | { filePath: string; sizeBytes: number; mtimeMs: number; sha256: string }
   | undefined;
 
 export function getNdsDbPathFromEnv(): string | undefined {
-  const raw = process.env[NDS_DB_PATH_ENV];
-  if (!raw || raw.trim().length === 0) return undefined;
+  return resolvePathFromEnv(NDS_DB_PATH_ENV);
+}
 
-  const trimmed = raw.trim();
-  if (!path.isAbsolute(trimmed)) {
-    throw invalidParams(`${NDS_DB_PATH_ENV} must be an absolute path`, { env: NDS_DB_PATH_ENV, value: trimmed });
-  }
-
-  const resolved = path.resolve(trimmed);
-  if (!fs.existsSync(resolved)) {
-    throw invalidParams(`${NDS_DB_PATH_ENV} does not exist`, { env: NDS_DB_PATH_ENV, value: resolved });
-  }
-
-  const stat = fs.statSync(resolved);
-  if (!stat.isFile()) {
-    throw invalidParams(`${NDS_DB_PATH_ENV} must point to a file`, { env: NDS_DB_PATH_ENV, value: resolved });
-  }
-
-  return resolved;
+export function getNdsDbPath(): string | undefined {
+  return resolveOptionalDbPath(NDS_DB_PATH_ENV, DEFAULT_NDS_DB_PATH);
 }
 
 export function requireNdsDbPathFromEnv(): string {
-  const p = getNdsDbPathFromEnv();
+  const p = getNdsDbPath();
   if (!p) {
     throw invalidParams(
       `${NDS_DB_PATH_ENV} is required. Auto-download may have failed at startup.`,
@@ -43,6 +32,13 @@ export function requireNdsDbPathFromEnv(): string {
     );
   }
   return p;
+}
+
+export function getMainDbStatus(): OptionalDbStatus {
+  return describeOptionalDb(
+    getNdsDbPath(),
+    'Set NDS_DB_PATH=/abs/path/to/nds.sqlite or run nds-mcp to auto-download',
+  );
 }
 
 export async function sha256File(filePath: string): Promise<string> {

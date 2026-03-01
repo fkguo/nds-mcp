@@ -1,16 +1,44 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import { handleToolCall } from '../src/tools/dispatcher.js';
 
 const FIXTURE_DB = path.resolve(__dirname, '..', 'fixtures', 'sample.sqlite');
 
+function runSql(dbPath: string, sql: string): void {
+  execFileSync('sqlite3', [dbPath, sql], { stdio: 'inherit' });
+}
+
 describe('NDS MCP tool queries', () => {
   let originalEnv: string | undefined;
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nds-queries-fixture-'));
+  const testDb = path.join(tmpRoot, 'sample-with-codata.sqlite');
 
   beforeAll(() => {
+    fs.copyFileSync(FIXTURE_DB, testDb);
+    runSql(
+      testDb,
+      `
+CREATE TABLE IF NOT EXISTS codata_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS codata_constants (
+  id INTEGER PRIMARY KEY,
+  quantity TEXT NOT NULL,
+  quantity_key TEXT NOT NULL UNIQUE,
+  value_text TEXT NOT NULL,
+  uncertainty_text TEXT NOT NULL,
+  unit TEXT NOT NULL,
+  is_exact INTEGER NOT NULL DEFAULT 0,
+  is_truncated INTEGER NOT NULL DEFAULT 0
+);
+INSERT OR REPLACE INTO codata_meta VALUES ('schema_version', '1');
+INSERT OR REPLACE INTO codata_meta VALUES ('upstream_version_or_snapshot', '2022');
+`,
+    );
+
     originalEnv = process.env.NDS_DB_PATH;
-    process.env.NDS_DB_PATH = FIXTURE_DB;
+    process.env.NDS_DB_PATH = testDb;
   });
 
   afterAll(() => {
@@ -19,6 +47,7 @@ describe('NDS MCP tool queries', () => {
     } else {
       process.env.NDS_DB_PATH = originalEnv;
     }
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
   it('nds_info returns metadata', async () => {
@@ -28,6 +57,10 @@ describe('NDS MCP tool queries', () => {
     expect(data.ame_version).toBe('AME2020');
     expect(data.nubase_version).toBe('NUBASE2020');
     expect(data.sha256).toBeDefined();
+    expect(data.main_db.status).toBe('ok');
+    expect(data.jendl5_db.status).toBeDefined();
+    expect(data.exfor_db.status).toBeDefined();
+    expect(data.codata_meta === null || typeof data.codata_meta === 'object').toBe(true);
   });
 
   it('nds_get_mass returns Pb-208 mass data', async () => {

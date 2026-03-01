@@ -12,7 +12,7 @@ const distEntry = path.resolve(__dirname, '..', 'dist', 'index.js');
 
 if (!existsSync(distEntry)) {
   console.error(`[nds-mcp] Build output missing: ${distEntry}`);
-  console.error('[nds-mcp] Run: pnpm -C packages/nds-mcp build');
+  console.error('[nds-mcp] Run: pnpm build');
   process.exitCode = 1;
   process.exit();
 }

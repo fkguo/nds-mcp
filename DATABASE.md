@@ -56,6 +56,20 @@ nuclear masses. When computing nuclear Q-values, electron masses cancel for most
 reactions, but **not** for beta-plus/EC or any reaction where the electron count
 changes. See caveats below.
 
+**Important (unbound nuclides):** AME includes entries for nuclides that are not
+particle-stable (e.g. `5He`, `5Li`). In such cases, the tabulated “mass” is an
+**evaluated quantity** associated with a resonance, not a strictly bound nuclear
+ground state. For near-threshold/broad resonances, different communities and
+evaluations may quote different *real-valued* energies for “the same state”
+(S-matrix pole energy vs eigenphase-shift centroid vs cross-section peak, etc.).
+If you mix:
+- AME atomic masses (for thresholds), with
+- resonance level energies `E_x` taken from an evaluation table (ENSDF/TUNL),
+you can get O(10–100 keV) shifts and even threshold sign flips. For such systems,
+do threshold comparisons using a single self-consistent evaluation/convention
+(e.g. use the evaluation's own printed threshold reference values or pole
+parameters).
+
 | Column | Type | Unit | Description |
 |--------|------|------|-------------|
 | `Z` | INTEGER | — | Proton number |

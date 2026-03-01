@@ -10,6 +10,13 @@ export const NDS_QUERY_LEVELS = 'nds_query_levels' as const;
 export const NDS_QUERY_GAMMAS = 'nds_query_gammas' as const;
 export const NDS_QUERY_DECAY_FEEDINGS = 'nds_query_decay_feedings' as const;
 export const NDS_LOOKUP_REFERENCE = 'nds_lookup_reference' as const;
+export const NDS_GET_RADIATION_SPECTRUM = 'nds_get_radiation_spectrum' as const;
+export const NDS_GET_CROSS_SECTION_TABLE = 'nds_get_cross_section_table' as const;
+export const NDS_INTERPOLATE_CROSS_SECTION = 'nds_interpolate_cross_section' as const;
+export const NDS_SEARCH_EXFOR = 'nds_search_exfor' as const;
+export const NDS_GET_EXFOR_ENTRY = 'nds_get_exfor_entry' as const;
+export const NDS_GET_CONSTANT = 'nds_get_constant' as const;
+export const NDS_LIST_CONSTANTS = 'nds_list_constants' as const;
 
 export type NdsToolName =
   | typeof NDS_FIND_NUCLIDE
@@ -23,4 +30,11 @@ export type NdsToolName =
   | typeof NDS_QUERY_LEVELS
   | typeof NDS_QUERY_GAMMAS
   | typeof NDS_QUERY_DECAY_FEEDINGS
-  | typeof NDS_LOOKUP_REFERENCE;
+  | typeof NDS_LOOKUP_REFERENCE
+  | typeof NDS_GET_RADIATION_SPECTRUM
+  | typeof NDS_GET_CROSS_SECTION_TABLE
+  | typeof NDS_INTERPOLATE_CROSS_SECTION
+  | typeof NDS_SEARCH_EXFOR
+  | typeof NDS_GET_EXFOR_ENTRY
+  | typeof NDS_GET_CONSTANT
+  | typeof NDS_LIST_CONSTANTS;

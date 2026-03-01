@@ -1,0 +1,168 @@
+import { invalidParams, sqlite3JsonQuery } from '../shared/index.js';
+import { interpolateTab1, type XsInterpSegment, type XsPoint } from './jendl5Interpolation.js';
+
+export interface CrossSectionLookup {
+  Z: number;
+  A: number;
+  state: number;
+  projectile: 'n' | 'p';
+  mt?: number;
+  reaction?: string;
+}
+
+export interface CrossSectionTableParams extends CrossSectionLookup {
+  mode: 'raw' | 'sampled';
+  e_min_eV?: number;
+  e_max_eV?: number;
+  n_points: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CrossSectionInterpolationParams extends CrossSectionLookup {
+  energy_eV: number;
+}
+
+interface XsMetaRow {
+  id: number;
+  Z: number;
+  A: number;
+  state: number;
+  projectile: string;
+  mt: number;
+  reaction: string;
+  e_min_eV: number;
+  e_max_eV: number;
+  n_points: number;
+}
+
+async function requireXsSchema(dbPath: string): Promise<void> {
+  const rows = await sqlite3JsonQuery(
+    dbPath,
+    "SELECT value FROM jendl5_meta WHERE key='xs_schema_version' LIMIT 1",
+  );
+  if (rows.length === 0) {
+    throw invalidParams('JENDL-5 cross section data not installed. Run: nds-mcp ingest --jendl5-xs', {
+      how_to: 'nds-mcp ingest --jendl5-xs',
+    });
+  }
+}
+
+async function resolveXsMeta(dbPath: string, params: CrossSectionLookup): Promise<XsMetaRow | null> {
+  const conditions: string[] = [
+    `Z=${params.Z}`,
+    `A=${params.A}`,
+    `state=${params.state}`,
+    `projectile='${params.projectile}'`,
+  ];
+  if (params.mt !== undefined) conditions.push(`mt=${params.mt}`);
+  if (params.reaction !== undefined) conditions.push(`reaction='${params.reaction.replaceAll("'", "''")}'`);
+  const rows = await sqlite3JsonQuery(
+    dbPath,
+    `SELECT * FROM jendl5_xs_meta WHERE ${conditions.join(' AND ')} LIMIT 1`,
+  );
+  return rows.length === 0 ? null : (rows[0] as XsMetaRow);
+}
+
+async function loadPoints(dbPath: string, xsId: number, eMin?: number, eMax?: number): Promise<XsPoint[]> {
+  const where: string[] = [`xs_id=${xsId}`];
+  if (eMin !== undefined) where.push(`e_eV >= ${eMin}`);
+  if (eMax !== undefined) where.push(`e_eV <= ${eMax}`);
+  const rows = await sqlite3JsonQuery(
+    dbPath,
+    `SELECT point_index, e_eV, sigma_b FROM jendl5_xs_points WHERE ${where.join(' AND ')} ORDER BY point_index`,
+  );
+  return rows as XsPoint[];
+}
+
+async function loadInterpSegments(dbPath: string, xsId: number): Promise<XsInterpSegment[]> {
+  const rows = await sqlite3JsonQuery(
+    dbPath,
+    `SELECT nbt, int_law FROM jendl5_xs_interp WHERE xs_id=${xsId} ORDER BY nbt`,
+  );
+  return rows as XsInterpSegment[];
+}
+
+function logGrid(minValue: number, maxValue: number, count: number): number[] {
+  if (count <= 1) return [minValue];
+  const logMin = Math.log(minValue);
+  const logMax = Math.log(maxValue);
+  const step = (logMax - logMin) / (count - 1);
+  const out: number[] = [];
+  for (let i = 0; i < count; i += 1) {
+    out.push(Math.exp(logMin + i * step));
+  }
+  return out;
+}
+
+export async function queryCrossSectionTable(
+  dbPath: string,
+  params: CrossSectionTableParams,
+): Promise<Record<string, unknown> | null> {
+  await requireXsSchema(dbPath);
+  const meta = await resolveXsMeta(dbPath, params);
+  if (!meta) return null;
+
+  const eMin = params.e_min_eV ?? meta.e_min_eV;
+  const eMax = params.e_max_eV ?? meta.e_max_eV;
+  if (eMin <= 0 || eMax <= 0 || eMin > eMax) {
+    throw invalidParams('Invalid e_min_eV/e_max_eV range');
+  }
+
+  if (params.mode === 'raw') {
+    const rows = await sqlite3JsonQuery(
+      dbPath,
+      `SELECT point_index, e_eV, sigma_b
+       FROM jendl5_xs_points
+       WHERE xs_id=${meta.id} AND e_eV >= ${eMin} AND e_eV <= ${eMax}
+       ORDER BY point_index
+       LIMIT ${params.limit} OFFSET ${params.offset}`,
+    );
+    return {
+      ...meta,
+      mode: 'raw',
+      source: 'JENDL-5 neutron 300K (Doppler-broadened)',
+      points: rows,
+    };
+  }
+
+  const points = await loadPoints(dbPath, meta.id, undefined, undefined);
+  const segments = await loadInterpSegments(dbPath, meta.id);
+  const energies = logGrid(eMin, eMax, params.n_points);
+  const sampled = energies.map((energy) => {
+    const result = interpolateTab1(points, segments, energy);
+    return { e_eV: energy, sigma_b: result.sigma_b, interpolation_method: result.interpolation_method };
+  });
+
+  return {
+    ...meta,
+    mode: 'sampled',
+    source: 'JENDL-5 neutron 300K (Doppler-broadened)',
+    points: sampled,
+  };
+}
+
+export async function interpolateCrossSection(
+  dbPath: string,
+  params: CrossSectionInterpolationParams,
+): Promise<Record<string, unknown> | null> {
+  await requireXsSchema(dbPath);
+  const meta = await resolveXsMeta(dbPath, params);
+  if (!meta) return null;
+
+  const points = await loadPoints(dbPath, meta.id);
+  const segments = await loadInterpSegments(dbPath, meta.id);
+  const result = interpolateTab1(points, segments, params.energy_eV);
+  return {
+    Z: meta.Z,
+    A: meta.A,
+    state: meta.state,
+    projectile: meta.projectile,
+    mt: meta.mt,
+    reaction: meta.reaction,
+    energy_eV: params.energy_eV,
+    sigma_b: result.sigma_b,
+    interpolation_method: result.interpolation_method,
+    source: 'JENDL-5 neutron 300K (Doppler-broadened)',
+  };
+}

@@ -2,7 +2,7 @@
 
 Nuclear Data Services MCP server — offline SQLite-backed nuclear physics data for AI agents.
 
-Provides 17 tools covering atomic masses (AME2020), nuclear properties (NUBASE2020), charge radii (IAEA + laser spectroscopy), energy levels and gamma transitions (ENSDF), light nuclei resonance data (TUNL, A=3–20), bibliographic references, JENDL-5 decay/cross-section data, and EXFOR experimental data.
+Provides 19 tools covering atomic masses (AME2020), nuclear properties (NUBASE2020), charge radii (IAEA + laser spectroscopy), energy levels and gamma transitions (ENSDF), light nuclei resonance data (TUNL, A=3–20), bibliographic references, JENDL-5 decay/cross-section data, EXFOR experimental data, and CODATA fundamental constants.
 
 ## Quick Start
 
@@ -13,13 +13,14 @@ npx -y nds-mcp
 The pre-built SQLite database (~85 MB) is automatically downloaded to `~/.nds-mcp/nds.sqlite` on first launch.
 By default it downloads from this repo's GitHub Releases (override via `NDS_DB_DOWNLOAD_URL`).
 
-Optional Phase 2 tools (`JENDL-5` / `EXFOR`) use separate SQLite files and are auto-downloaded on demand.
+Optional Phase 2 tools `JENDL-5` / `EXFOR` use separate SQLite files and are auto-downloaded on demand.
+`CODATA` is bundled inside `nds.sqlite`.
 
 ## Databases
 
 | SQLite file | Default path | Download behavior | Includes |
 |-------------|--------------|-------------------|----------|
-| `nds.sqlite` | `~/.nds-mcp/nds.sqlite` | Auto-download on server startup *(required)* | AME2020 masses + reaction Q-values; NUBASE2020 nuclear properties; charge radii (IAEA + Li2021 laser spectroscopy); ENSDF (levels, gammas, decay feedings, references); TUNL light-nuclei resonance/level data (A=3–20) |
+| `nds.sqlite` | `~/.nds-mcp/nds.sqlite` | Auto-download on server startup *(required)* | AME2020 masses + reaction Q-values; NUBASE2020 nuclear properties; charge radii (IAEA + Li2021 laser spectroscopy); ENSDF (levels, gammas, decay feedings, references); TUNL light-nuclei resonance/level data (A=3–20); CODATA fundamental constants |
 | `jendl5.sqlite` *(optional)* | `~/.nds-mcp/jendl5.sqlite` | Auto-download on first call to JENDL-5 tools | JENDL-5 decay data + radiation spectra; JENDL-5 pointwise cross sections + ENDF-6 interpolation laws |
 | `exfor.sqlite` *(optional)* | `~/.nds-mcp/exfor.sqlite` | Auto-download on first call to EXFOR tools | EXFOR experimental data points (SIG/MACS/...) + per-entry metadata |
 
@@ -139,6 +140,7 @@ The server communicates over stdin/stdout (MCP protocol). Diagnostic messages go
 | JENDL-5 Decay *(optional, `jendl5.sqlite`)* | `jendl5_decays`, `jendl5_decay_modes`, `jendl5_radiation` | Decay data + radiation spectra |
 | JENDL-5 XS *(optional, `jendl5.sqlite`)* | `jendl5_xs_meta`, `jendl5_xs_points`, `jendl5_xs_interp` | Pointwise cross sections + ENDF-6 interpolation laws |
 | EXFOR *(optional, `exfor.sqlite`)* | `exfor_entries`, `exfor_points` | Experimental data points (SIG/MACS/...) |
+| CODATA 2022 | `codata_constants`, `codata_meta` | Fundamental constants (value/uncertainty/unit, exact/truncated flags) |
 
 ## Masses, Thresholds, and Near-Threshold Resonances (Important)
 
@@ -161,7 +163,7 @@ The server communicates over stdin/stdout (MCP protocol). Diagnostic messages go
 | `nds_get_separation_energy` | Nucleon separation energies: Sn, Sp, S2n, S2p (AME2020) |
 | `nds_get_q_value` | Reaction Q-values: Qa, Q2bm, Qep, Qbn, etc. (AME2020) |
 | `nds_get_decay` | Decay info: half-life, spin/parity, decay modes (NUBASE2020) |
-| `nds_get_charge_radius` | Nuclear charge radii with laser spectroscopy provenance |
+| `nds_get_charge_radius` | Nuclear charge radii with cross-source comparison (`mode=best|all|compare`) |
 | `nds_search` | Search nuclides by property range (half-life, mass excess) |
 | `nds_query_levels` | Nuclear energy levels from ENSDF + TUNL (auto-merged for A ≤ 20, with `source` discriminator) |
 | `nds_query_gammas` | Gamma-ray transitions from ENSDF |
@@ -172,6 +174,8 @@ The server communicates over stdin/stdout (MCP protocol). Diagnostic messages go
 | `nds_interpolate_cross_section` | ENDF-6 NBT/INT interpolation at one incident energy |
 | `nds_search_exfor` | Search EXFOR data points (supports `quantity=SIG|MACS|...`) |
 | `nds_get_exfor_entry` | Load full EXFOR entry payload by `entry_id` |
+| `nds_get_constant` | Get one CODATA fundamental constant by name |
+| `nds_list_constants` | List CODATA constants with filter and pagination |
 
 ## Example: Charge Radii from H to O-16
 

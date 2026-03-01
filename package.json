@@ -36,7 +36,8 @@
     "ingest": "tsx src/ingest/buildDb.ts",
     "ingest:jendl5-dec": "tsx src/index.ts ingest --jendl5-dec",
     "ingest:jendl5-xs": "tsx src/index.ts ingest --jendl5-xs",
-    "ingest:exfor": "tsx src/index.ts ingest --exfor"
+    "ingest:exfor": "tsx src/index.ts ingest --exfor",
+    "ingest:codata": "tsx src/index.ts ingest --codata"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",

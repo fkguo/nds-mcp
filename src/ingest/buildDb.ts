@@ -15,6 +15,12 @@ import { parseChargeRadii } from './parseRadii.js';
 import { parseLaserRadii } from './parseLaserRadii.js';
 import { parseTunlLevels } from './parseTunl.js';
 import {
+  CODATA_INDEX_SQL,
+  CODATA_SCHEMA_SQL,
+  DEFAULT_CODATA_ASCII_URL,
+  ingestCodata,
+} from './buildCodataDb.js';
+import {
   splitIntoDatasets,
   classifyRecord,
   parseReferenceRecord,
@@ -282,7 +288,12 @@ CREATE INDEX IF NOT EXISTS idx_tunl_levels_isospin ON tunl_levels(isospin);
 
 // ── Combined constants for full rebuild ─────────────────────────────────────
 
-const SCHEMA_SQL = BASE_SCHEMA_SQL + ENSDF_SCHEMA_SQL + LASER_RADII_SCHEMA_SQL + TUNL_SCHEMA_SQL;
+const SCHEMA_SQL =
+  BASE_SCHEMA_SQL +
+  ENSDF_SCHEMA_SQL +
+  LASER_RADII_SCHEMA_SQL +
+  TUNL_SCHEMA_SQL +
+  CODATA_SCHEMA_SQL;
 
 // ── Indexes ─────────────────────────────────────────────────────────────────
 
@@ -312,7 +323,27 @@ CREATE INDEX IF NOT EXISTS idx_ensdf_feedings_dataset ON ensdf_decay_feedings(da
 CREATE INDEX IF NOT EXISTS idx_ensdf_feedings_mode ON ensdf_decay_feedings(decay_mode);
 `;
 
-const INDEX_SQL = BASE_INDEX_SQL + ENSDF_INDEX_SQL + LASER_RADII_INDEX_SQL + TUNL_INDEX_SQL;
+const INDEX_SQL =
+  BASE_INDEX_SQL +
+  ENSDF_INDEX_SQL +
+  LASER_RADII_INDEX_SQL +
+  TUNL_INDEX_SQL +
+  CODATA_INDEX_SQL;
+
+function resolveCodataSource(dataDir: string): string {
+  const candidates = [
+    path.join(dataDir, 'codata', 'allascii.txt'),
+    path.join(dataDir, 'codata', 'codata-allascii.txt'),
+    path.join(dataDir, 'codata', 'codata-allscii.txt'),
+    path.join(dataDir, 'codata-allascii.txt'),
+    path.join(dataDir, 'codata-allscii.txt'),
+    path.join(dataDir, 'allascii.txt'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return DEFAULT_CODATA_ASCII_URL;
+}
 
 function executeSql(dbPath: string, sql: string): void {
   execFileSync('sqlite3', [dbPath], {
@@ -688,7 +719,7 @@ function ingestTunlLevels(dbPath: string, tunlDir: string): number {
   return totalRows;
 }
 
-export function buildDatabase(dataDir: string, outputPath: string): {
+export async function buildDatabase(dataDir: string, outputPath: string): Promise<{
   masses: number;
   rct1: number;
   rct2: number;
@@ -697,7 +728,8 @@ export function buildDatabase(dataDir: string, outputPath: string): {
   laserRadii: number;
   ensdf: { references: number; datasets: number; levels: number; gammas: number; feedings: number };
   tunl: number;
-} {
+  codata: number;
+}> {
   // Ensure output directory exists
   const outDir = path.dirname(outputPath);
   if (!fs.existsSync(outDir)) {
@@ -812,6 +844,10 @@ export function buildDatabase(dataDir: string, outputPath: string): {
     // -- TUNL energy levels (A ≤ 20) --
     const tunlCount = ingestTunlLevels(tmpPath, path.join(dataDir, 'tunl'));
 
+    // -- CODATA constants --
+    const codataSource = resolveCodataSource(dataDir);
+    const codata = await ingestCodata(tmpPath, codataSource);
+
     // Indexes
     executeSql(tmpPath, INDEX_SQL);
 
@@ -837,6 +873,9 @@ export function buildDatabase(dataDir: string, outputPath: string): {
       INSERT OR REPLACE INTO nds_meta VALUES('laser_radii_refs_count','${laserCounts.refs}');
       INSERT OR REPLACE INTO nds_meta VALUES('tunl_version','TUNL-2024');
       INSERT OR REPLACE INTO nds_meta VALUES('tunl_levels_count','${tunlCount}');
+      INSERT OR REPLACE INTO nds_meta VALUES('codata_version','${codata.upstream_version_or_snapshot}');
+      INSERT OR REPLACE INTO nds_meta VALUES('codata_count','${codata.constants}');
+      INSERT OR REPLACE INTO nds_meta VALUES('codata_source_kind','${codata.source_kind}');
     `);
 
     // Atomic rename: replace old DB only on complete success
@@ -851,6 +890,7 @@ export function buildDatabase(dataDir: string, outputPath: string): {
       laserRadii: laserCounts.rows,
       ensdf: ensdfCounts,
       tunl: tunlCount,
+      codata: codata.constants,
     };
   } catch (err) {
     // Clean up partial temp file on failure
@@ -1035,8 +1075,20 @@ if (process.argv[1] && (process.argv[1].endsWith('buildDb.ts') || process.argv[1
       process.exit(1);
     }
     console.error(`Building NDS database from ${dataDir} → ${output}`);
-    const counts = buildDatabase(dataDir, output);
-    console.error(`Done: masses=${counts.masses}, rct1=${counts.rct1}, rct2=${counts.rct2}, nubase=${counts.nubase}, radii=${counts.radii}, laserRadii=${counts.laserRadii}, tunl=${counts.tunl}`);
-    console.error(`ENSDF: refs=${counts.ensdf.references}, datasets=${counts.ensdf.datasets}, levels=${counts.ensdf.levels}, gammas=${counts.ensdf.gammas}, feedings=${counts.ensdf.feedings}`);
+    buildDatabase(dataDir, output)
+      .then((counts) => {
+        console.error(
+          `Done: masses=${counts.masses}, rct1=${counts.rct1}, rct2=${counts.rct2}, nubase=${counts.nubase}, ` +
+          `radii=${counts.radii}, laserRadii=${counts.laserRadii}, tunl=${counts.tunl}, codata=${counts.codata}`,
+        );
+        console.error(
+          `ENSDF: refs=${counts.ensdf.references}, datasets=${counts.ensdf.datasets}, ` +
+          `levels=${counts.ensdf.levels}, gammas=${counts.ensdf.gammas}, feedings=${counts.ensdf.feedings}`,
+        );
+      })
+      .catch((error) => {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+      });
   }
 }
