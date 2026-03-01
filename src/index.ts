@@ -13,13 +13,14 @@ import {
 
 import { getTools, handleToolCall, type ToolExposureMode } from './tools/index.js';
 import { ensureNdsDb } from './db/ensureDb.js';
+import { runIngestCli } from './ingest/cli.js';
 
 const TOOL_MODE: ToolExposureMode = process.env.NDS_TOOL_MODE === 'full' ? 'full' : 'standard';
 
 const server = new Server(
   {
     name: 'nds-mcp',
-    version: '0.1.1',
+    version: '0.2.0',
   },
   {
     capabilities: {
@@ -37,6 +38,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 async function main() {
+  if (process.argv[2] === 'ingest') {
+    await runIngestCli(process.argv.slice(3));
+    return;
+  }
+
   try {
     await ensureNdsDb();
   } catch (err) {

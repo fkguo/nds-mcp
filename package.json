@@ -1,6 +1,6 @@
 {
   "name": "nds-mcp",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Nuclear Data Services MCP server — offline SQLite-backed nuclear physics data queries",
   "author": "Feng-Kun Guo",
   "license": "MIT",
@@ -32,7 +32,11 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "ingest": "tsx src/ingest/buildDb.ts"
+    "verify:db": "scripts/check-db.sh",
+    "ingest": "tsx src/ingest/buildDb.ts",
+    "ingest:jendl5-dec": "tsx src/index.ts ingest --jendl5-dec",
+    "ingest:jendl5-xs": "tsx src/index.ts ingest --jendl5-xs",
+    "ingest:exfor": "tsx src/index.ts ingest --exfor"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
