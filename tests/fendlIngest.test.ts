@@ -97,9 +97,14 @@ describe('FENDL-3.2c ingest', () => {
   it('ingests zipped FENDL-style ENDF files and preserves required meta keys', async () => {
     const summary = await ingestFendl32c(dbPath, sourceDir, 'FENDL-3.2c');
     expect(summary.reactions).toBeGreaterThanOrEqual(4);
+    expect(summary.archives).toBe(4);
 
     const totalRows = Number(runSqlScalar(dbPath, 'SELECT COUNT(*) FROM fendl_xs_meta;'));
     expect(totalRows).toBeGreaterThanOrEqual(4);
+    const rawRows = Number(runSqlScalar(dbPath, 'SELECT COUNT(*) FROM fendl_raw_archives;'));
+    expect(rawRows).toBe(4);
+    const rawBytes = Number(runSqlScalar(dbPath, 'SELECT SUM(size_bytes) FROM fendl_raw_archives;'));
+    expect(rawBytes).toBeGreaterThan(0);
 
     const projectiles = runSqlScalar(
       dbPath,
@@ -117,6 +122,8 @@ describe('FENDL-3.2c ingest', () => {
     expect(meta.fendl_schema_version).toBe('1');
     expect(meta.fendl_version).toBe('FENDL-3.2c');
     expect(meta.upstream_name).toBe('FENDL-3.2c');
+    expect(Number(meta.fendl_raw_archive_count)).toBe(4);
+    expect(Number(meta.fendl_raw_archive_bytes)).toBeGreaterThan(0);
   });
 
   it('nds_info exposes fendl_db status and fendl_meta when configured', async () => {

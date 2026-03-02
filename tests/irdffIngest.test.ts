@@ -87,9 +87,14 @@ describe('IRDFF-II ingest', () => {
   it('ingests zipped IRDFF-style neutron ENDF and writes required metadata', async () => {
     const summary = await ingestIrdff2(dbPath, sourceDir, 'IRDFF-II');
     expect(summary.reactions).toBeGreaterThanOrEqual(1);
+    expect(summary.archives).toBe(1);
 
     const totalRows = Number(runSqlScalar(dbPath, 'SELECT COUNT(*) FROM irdff_xs_meta;'));
     expect(totalRows).toBeGreaterThanOrEqual(1);
+    const rawRows = Number(runSqlScalar(dbPath, 'SELECT COUNT(*) FROM irdff_raw_archives;'));
+    expect(rawRows).toBe(1);
+    const rawBytes = Number(runSqlScalar(dbPath, 'SELECT SUM(size_bytes) FROM irdff_raw_archives;'));
+    expect(rawBytes).toBeGreaterThan(0);
 
     const projectile = runSqlScalar(dbPath, 'SELECT projectile FROM irdff_xs_meta LIMIT 1;');
     expect(projectile).toBe('n');
@@ -101,6 +106,8 @@ describe('IRDFF-II ingest', () => {
     expect(meta.irdff_schema_version).toBe('1');
     expect(meta.irdff_version).toBe('IRDFF-II');
     expect(meta.upstream_name).toBe('IRDFF-II');
+    expect(Number(meta.irdff_raw_archive_count)).toBe(1);
+    expect(Number(meta.irdff_raw_archive_bytes)).toBeGreaterThan(0);
   });
 
   it('nds_info exposes irdff_db status and irdff_meta when configured', async () => {

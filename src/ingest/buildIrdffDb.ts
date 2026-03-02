@@ -1,3 +1,7 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { createHash } from 'crypto';
 import { execFileSync } from 'child_process';
 import { buildRequiredLibraryMeta, detectSourceKind } from './metaContract.js';
 import { runSql, sqlEscape, streamXsRecords } from './jendl5DbCore.js';
@@ -15,6 +19,14 @@ export function ensureIrdffSchema(dbPath: string): void {
     dbPath,
     `
 CREATE TABLE IF NOT EXISTS irdff_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS irdff_raw_archives (
+  id INTEGER PRIMARY KEY,
+  rel_path TEXT NOT NULL UNIQUE,
+  projectile TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  sha256 TEXT NOT NULL,
+  content BLOB NOT NULL
+);
 CREATE TABLE IF NOT EXISTS irdff_xs_meta (
   id INTEGER PRIMARY KEY,
   Z INTEGER NOT NULL,
@@ -42,10 +54,93 @@ CREATE TABLE IF NOT EXISTS irdff_xs_interp (
   nbt INTEGER NOT NULL,
   int_law INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_irdff_raw_archives_projectile ON irdff_raw_archives(projectile);
 CREATE INDEX IF NOT EXISTS idx_irdff_xs_meta_za ON irdff_xs_meta(Z, A, projectile, state);
 CREATE INDEX IF NOT EXISTS idx_irdff_xs_points_xs ON irdff_xs_points(xs_id, e_eV);
 `,
   );
+}
+
+interface SourceZipFile {
+  absolutePath: string;
+  relativePath: string;
+}
+
+function walkZipFiles(root: string): SourceZipFile[] {
+  const out: SourceZipFile[] = [];
+  const pending = [root];
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(fullPath);
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.zip')) {
+        out.push({
+          absolutePath: fullPath,
+          relativePath: path.relative(root, fullPath),
+        });
+      }
+    }
+  }
+  return out.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+}
+
+function sha256File(filePath: string): string {
+  const hash = createHash('sha256');
+  hash.update(fs.readFileSync(filePath));
+  return hash.digest('hex');
+}
+
+function collectZipFiles(sourcePath: string): { files: SourceZipFile[]; cleanupPath?: string } {
+  const stat = fs.statSync(sourcePath);
+  if (stat.isDirectory()) {
+    return { files: walkZipFiles(sourcePath) };
+  }
+
+  const lower = sourcePath.toLowerCase();
+  if (lower.endsWith('.zip')) {
+    return {
+      files: [{
+        absolutePath: sourcePath,
+        relativePath: path.basename(sourcePath),
+      }],
+    };
+  }
+
+  if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'irdff-raw-archive-'));
+    execFileSync('tar', ['-xzf', sourcePath, '-C', tmpRoot], { stdio: 'pipe' });
+    return { files: walkZipFiles(tmpRoot), cleanupPath: tmpRoot };
+  }
+
+  return { files: [] };
+}
+
+function ingestRawArchives(dbPath: string, sourcePath: string): { archives: number; totalBytes: number } {
+  const { files, cleanupPath } = collectZipFiles(sourcePath);
+  let archives = 0;
+  let totalBytes = 0;
+  try {
+    for (const file of files) {
+      const sizeBytes = fs.statSync(file.absolutePath).size;
+      const sha256 = sha256File(file.absolutePath);
+      runSql(
+        dbPath,
+        `INSERT INTO irdff_raw_archives(rel_path, projectile, size_bytes, sha256, content)
+         VALUES ('${sqlEscape(file.relativePath)}', 'n', ${sizeBytes},
+                 '${sqlEscape(sha256)}', readfile('${sqlEscape(path.resolve(file.absolutePath))}'));`,
+      );
+      archives += 1;
+      totalBytes += sizeBytes;
+      if (archives % 100 === 0) {
+        console.error(`[nds-mcp] IRDFF raw archive ingest progress: ${archives} archives`);
+      }
+    }
+  } finally {
+    if (cleanupPath) fs.rmSync(cleanupPath, { recursive: true, force: true });
+  }
+  return { archives, totalBytes };
 }
 
 function validateXsRecord(record: {
@@ -90,7 +185,7 @@ export async function ingestIrdff2(
   dbPath: string,
   sourcePath: string,
   version = 'IRDFF-II',
-): Promise<{ reactions: number }> {
+): Promise<{ reactions: number; archives: number }> {
   ensureIrdffSchema(dbPath);
   const requiredMeta = buildRequiredLibraryMeta({
     schemaVersion: '1',
@@ -104,6 +199,7 @@ export async function ingestIrdff2(
     dbPath,
     `
 BEGIN;
+DELETE FROM irdff_raw_archives;
 DELETE FROM irdff_xs_meta;
 DELETE FROM irdff_xs_points;
 DELETE FROM irdff_xs_interp;
@@ -111,6 +207,15 @@ ${buildMetaUpsertSql('irdff_meta', requiredMeta)}
 INSERT OR REPLACE INTO irdff_meta(key, value) VALUES ('irdff_schema_version', '1');
 INSERT OR REPLACE INTO irdff_meta(key, value) VALUES ('irdff_version', '${sqlEscape(version)}');
 COMMIT;
+`,
+  );
+
+  const rawSummary = ingestRawArchives(dbPath, sourcePath);
+  runSql(
+    dbPath,
+    `
+INSERT OR REPLACE INTO irdff_meta(key, value) VALUES ('irdff_raw_archive_count', '${rawSummary.archives}');
+INSERT OR REPLACE INTO irdff_meta(key, value) VALUES ('irdff_raw_archive_bytes', '${rawSummary.totalBytes}');
 `,
   );
 
@@ -159,5 +264,5 @@ COMMIT;
     throw new Error(`No IRDFF XS records were ingested from source: ${sourcePath}`);
   }
 
-  return { reactions };
+  return { reactions, archives: rawSummary.archives };
 }

@@ -96,7 +96,7 @@ Decision: stop JEFF/ENDF/TENDL expansion for now; focus only on `FENDL-3.2c` and
   - `IRDFF ingest: neutron zip 样例可入库并通过 nds_info 暴露 irdff_meta`
   - `JENDL 回归: 新增“目录含坏 zip 仍可 ingest”测试通过`
 - Review convergence:
-  - `claude_opus_findings: 本机 claude CLI 鉴权失败（401 token expired），无法产出有效审阅`
+  - `claude_opus_findings: 重试成功（2026-03-02, model=opus），Verdict=PASS，无阻断项，仅低优先级建议（去重与注释完善）`
   - `gemini_3_1_pro_preview_findings: 第1轮指出 unzip 需无交互参数（-o）及错误可诊断性；第2轮复审 Verdict=PASS`
   - `equivalent_substitute: Codex(gpt-5.3-codex) 审阅指出目录内任意 .zip 可能导致旧 JENDL ingest 回归（应跳过坏/无关 zip）`
   - `conflict_resolution: 两模型（Gemini + 替代 Codex）第1轮均给出阻断项 -> 已落实 -o、zip 失败降级跳过、并补 JENDL 回归测试；第2轮两模型均 PASS/merge`

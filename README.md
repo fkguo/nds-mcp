@@ -25,8 +25,8 @@ Maintainer ingest support also includes `FENDL-3.2c` and `IRDFF-II` optional SQL
 | `nds.sqlite` | `~/.nds-mcp/nds.sqlite` | Auto-download on server startup *(required)* | AME2020 masses + reaction Q-values; NUBASE2020 nuclear properties; charge radii (IAEA + Li2021 laser spectroscopy); ENSDF (levels, gammas, decay feedings, references); TUNL light-nuclei resonance/level data (A=3–20); CODATA fundamental constants |
 | `jendl5.sqlite` *(optional)* | `~/.nds-mcp/jendl5.sqlite` | Auto-download on first call to JENDL-5 tools | JENDL-5 decay data + radiation spectra; JENDL-5 pointwise cross sections + ENDF-6 interpolation laws |
 | `exfor.sqlite` *(optional)* | `~/.nds-mcp/exfor.sqlite` | Auto-download on first call to EXFOR tools | EXFOR experimental data points (SIG/MACS/...) + per-entry metadata |
-| `fendl32c.sqlite` *(optional, maintainer ingest)* | `~/.nds-mcp/fendl32c.sqlite` | Built via `nds-mcp ingest --fendl` (status visible in `nds_info`) | FENDL-3.2c transport ENDF data (photo-atomic, neutron, proton, deuteron) |
-| `irdff2.sqlite` *(optional, maintainer ingest)* | `~/.nds-mcp/irdff2.sqlite` | Built via `nds-mcp ingest --irdff` (status visible in `nds_info`) | IRDFF-II dosimetry neutron cross sections |
+| `fendl32c.sqlite` *(optional, maintainer ingest)* | `~/.nds-mcp/fendl32c.sqlite` | Built via `nds-mcp ingest --fendl` (status visible in `nds_info`) | FENDL-3.2c transport ENDF data (photo-atomic, neutron, proton, deuteron) + full upstream zip archives (all MF retained) |
+| `irdff2.sqlite` *(optional, maintainer ingest)* | `~/.nds-mcp/irdff2.sqlite` | Built via `nds-mcp ingest --irdff` (status visible in `nds_info`) | IRDFF-II dosimetry neutron data + full upstream zip archives (all MF retained) |
 
 You can always bring your own files by setting `NDS_DB_PATH` / `NDS_JENDL5_DB_PATH` / `NDS_EXFOR_DB_PATH` / `NDS_FENDL_DB_PATH` / `NDS_IRDFF_DB_PATH`.
 
