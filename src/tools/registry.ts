@@ -12,6 +12,8 @@ import { lookupReference } from '../db/references.js';
 import { ensureJendl5Db, getJendl5DbStatus } from '../db/jendl5Db.js';
 import { ensureExforDb, getExforDbStatus } from '../db/exforDb.js';
 import { ensureDdepDb, getDdepDbStatus } from '../db/ddepDb.js';
+import { getFendlDbStatus } from '../db/fendlDb.js';
+import { getIrdffDbStatus } from '../db/irdffDb.js';
 import { queryRadiationSpectrum } from '../db/jendl5RadiationSpec.js';
 import {
   getReactionInfo,
@@ -321,6 +323,8 @@ export const TOOL_SPECS: ToolSpec[] = [
     zodSchema: NdsInfoSchema,
     handler: async () => {
       const mainDb = getMainDbStatus();
+      const fendlDb = getFendlDbStatus();
+      const irdffDb = getIrdffDbStatus();
       const jendl5Db = getJendl5DbStatus();
       const exforDb = getExforDbStatus();
       const ddepDb = getDdepDbStatus();
@@ -328,6 +332,8 @@ export const TOOL_SPECS: ToolSpec[] = [
       if (mainDb.status !== 'ok' || !mainDb.path) {
         return {
           main_db: mainDb,
+          fendl_db: fendlDb,
+          irdff_db: irdffDb,
           jendl5_db: jendl5Db,
           exfor_db: exforDb,
           ddep_db: ddepDb,
@@ -346,6 +352,14 @@ export const TOOL_SPECS: ToolSpec[] = [
         db_path: mainDb.path,
         ...fileMeta,
         main_db: mainDb,
+        fendl_db: fendlDb,
+        fendl_meta: fendlDb.status === 'ok' && fendlDb.path
+          ? await loadKeyValueMeta(fendlDb.path, 'fendl_meta')
+          : null,
+        irdff_db: irdffDb,
+        irdff_meta: irdffDb.status === 'ok' && irdffDb.path
+          ? await loadKeyValueMeta(irdffDb.path, 'irdff_meta')
+          : null,
         jendl5_db: jendl5Db,
         jendl5_meta: jendl5Db.status === 'ok' && jendl5Db.path
           ? await loadKeyValueMeta(jendl5Db.path, 'jendl5_meta')

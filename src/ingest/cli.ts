@@ -2,14 +2,20 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DEFAULT_DDEP_DB_PATH } from '../db/ddepDb.js';
 import { DEFAULT_EXFOR_DB_PATH } from '../db/exforDb.js';
+import { DEFAULT_FENDL_DB_PATH } from '../db/fendlDb.js';
+import { DEFAULT_IRDFF_DB_PATH } from '../db/irdffDb.js';
 import { DEFAULT_JENDL5_DB_PATH } from '../db/jendl5Db.js';
 import { DEFAULT_NDS_DB_PATH } from '../db/ndsDb.js';
 import { atomicWriteSqlite, ingestJendl5Decay, ingestJendl5Xs } from './buildJendl5Db.js';
 import { ingestExfor } from './buildExforDb.js';
 import { ingestDdep } from './buildDdepDb.js';
+import { ingestFendl32c } from './buildFendlDb.js';
+import { ingestIrdff2 } from './buildIrdffDb.js';
 import { DEFAULT_CODATA_ASCII_URL, ingestCodata } from './buildCodataDb.js';
 
 interface IngestArgs {
+  fendl: boolean;
+  irdff: boolean;
   jendl5Dec: boolean;
   jendl5Xs: boolean;
   exfor: boolean;
@@ -18,6 +24,8 @@ interface IngestArgs {
   all: boolean;
   output?: string;
   source?: string;
+  fendlSource?: string;
+  irdffSource?: string;
   decSource?: string;
   xsSource?: string;
   exforSource?: string;
@@ -28,6 +36,8 @@ interface IngestArgs {
 
 function parseArgs(argv: string[]): IngestArgs {
   const out: IngestArgs = {
+    fendl: false,
+    irdff: false,
     jendl5Dec: false,
     jendl5Xs: false,
     exfor: false,
@@ -37,7 +47,9 @@ function parseArgs(argv: string[]): IngestArgs {
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
-    if (arg === '--jendl5-dec') out.jendl5Dec = true;
+    if (arg === '--fendl') out.fendl = true;
+    else if (arg === '--irdff') out.irdff = true;
+    else if (arg === '--jendl5-dec') out.jendl5Dec = true;
     else if (arg === '--jendl5-xs') out.jendl5Xs = true;
     else if (arg === '--exfor') out.exfor = true;
     else if (arg === '--ddep') out.ddep = true;
@@ -45,6 +57,8 @@ function parseArgs(argv: string[]): IngestArgs {
     else if (arg === '--all') out.all = true;
     else if (arg === '--output') out.output = argv[++index];
     else if (arg === '--source') out.source = argv[++index];
+    else if (arg === '--fendl-source') out.fendlSource = argv[++index];
+    else if (arg === '--irdff-source') out.irdffSource = argv[++index];
     else if (arg === '--dec-source') out.decSource = argv[++index];
     else if (arg === '--xs-source') out.xsSource = argv[++index];
     else if (arg === '--exfor-source') out.exforSource = argv[++index];
@@ -60,6 +74,8 @@ function parseArgs(argv: string[]): IngestArgs {
 function usage(): string {
   return [
     'Usage:',
+    '  nds-mcp ingest --fendl --source <path-to-dir|path-to-archive(.zip|.tar.gz)> [--output ~/.nds-mcp/fendl32c.sqlite]',
+    '  nds-mcp ingest --irdff --source <path-to-dir|path-to-archive(.zip|.tar.gz)> [--output ~/.nds-mcp/irdff2.sqlite]',
     '  nds-mcp ingest --jendl5-dec --source <path> [--output ~/.nds-mcp/jendl5.sqlite]',
     '  nds-mcp ingest --jendl5-xs --source <path-to-jsonl|path-to-tar|path-to-dir|path-to-endf(.gz)> [--output ~/.nds-mcp/jendl5.sqlite]',
     '  nds-mcp ingest --exfor --source <path> [--output ~/.nds-mcp/exfor.sqlite]',
@@ -95,8 +111,22 @@ export async function runIngestCli(argv: string[]): Promise<void> {
     args.ddep = true;
     args.codata = true;
   }
-  if (!args.jendl5Dec && !args.jendl5Xs && !args.exfor && !args.ddep && !args.codata) {
+  if (!args.fendl && !args.irdff && !args.jendl5Dec && !args.jendl5Xs && !args.exfor && !args.ddep && !args.codata) {
     throw new Error(`No ingest target selected.\n${usage()}`);
+  }
+
+  if (args.fendl) {
+    const output = path.resolve(args.output ?? DEFAULT_FENDL_DB_PATH);
+    const source = requireSource('fendl', args.fendlSource ?? args.source);
+    const result = await atomicWriteSqlite(output, (tmpPath) => ingestFendl32c(tmpPath, source));
+    console.error('[nds-mcp] FENDL ingest complete:', JSON.stringify({ output, ...result }));
+  }
+
+  if (args.irdff) {
+    const output = path.resolve(args.output ?? DEFAULT_IRDFF_DB_PATH);
+    const source = requireSource('irdff', args.irdffSource ?? args.source);
+    const result = await atomicWriteSqlite(output, (tmpPath) => ingestIrdff2(tmpPath, source));
+    console.error('[nds-mcp] IRDFF ingest complete:', JSON.stringify({ output, ...result }));
   }
 
   if (args.jendl5Dec || args.jendl5Xs) {

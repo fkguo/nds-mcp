@@ -113,6 +113,9 @@ describe('JENDL-5 XS ENDF-6 ingest', () => {
   const li6EndfPath = path.join(tmpRoot, 'n_003-Li-6_300K.dat');
   const jsonPath = path.join(tmpRoot, 'pb208-n-gamma.json');
   const auxTxtPath = path.join(tmpRoot, 'README.txt');
+  const mixedDir = path.join(tmpRoot, 'mixed');
+  const mixedEndfPath = path.join(mixedDir, 'n_082-Pb-208_300K.dat');
+  const mixedInvalidZipPath = path.join(mixedDir, 'junk.zip');
   const txtOnlyDir = path.join(tmpRoot, 'txt-only');
   const gzPath = path.join(tmpRoot, 'n_082-Pb-208_300K.dat.gz');
   const tarPath = path.join(tmpRoot, 'jendl5-n-300K-mini.tar.gz');
@@ -138,6 +141,9 @@ describe('JENDL-5 XS ENDF-6 ingest', () => {
       interp: [{ nbt: 2, int_law: 2 }],
     }, null, 2), 'utf-8');
     fs.writeFileSync(auxTxtPath, 'This is not ENDF data.', 'utf-8');
+    fs.mkdirSync(mixedDir, { recursive: true });
+    fs.writeFileSync(mixedEndfPath, buildPb208Endf(), 'utf-8');
+    fs.writeFileSync(mixedInvalidZipPath, 'not a zip archive', 'utf-8');
     fs.mkdirSync(txtOnlyDir, { recursive: true });
     fs.writeFileSync(path.join(txtOnlyDir, 'README.txt'), 'No ENDF sections here.', 'utf-8');
     fs.writeFileSync(gzPath, zlib.gzipSync(fs.readFileSync(endfPath)));
@@ -195,6 +201,17 @@ describe('JENDL-5 XS ENDF-6 ingest', () => {
     const pbCaptureRows = Number(runSqlScalar(
       jendlDb,
       "SELECT COUNT(*) FROM jendl5_xs_meta WHERE Z=82 AND A=208 AND state=0 AND projectile='n' AND mt=102 AND reaction='n,gamma';",
+    ));
+    expect(pbCaptureRows).toBe(1);
+  });
+
+  it('ignores invalid .zip files when ingesting from a directory source', async () => {
+    const summary = await ingestJendl5Xs(jendlDb, mixedDir, '300K');
+    expect(summary.reactions).toBeGreaterThanOrEqual(1);
+
+    const pbCaptureRows = Number(runSqlScalar(
+      jendlDb,
+      "SELECT COUNT(*) FROM jendl5_xs_meta WHERE Z=82 AND A=208 AND state=0 AND projectile='n' AND mt=102;",
     ));
     expect(pbCaptureRows).toBe(1);
   });

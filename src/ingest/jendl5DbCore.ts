@@ -133,6 +133,12 @@ export async function* streamXsRecords(sourcePath: string): AsyncIterable<Jendl5
     }
     return;
   }
+  if (sourcePath.toLowerCase().endsWith('.zip')) {
+    for await (const record of parseJendl5XsArchiveFile(sourcePath)) {
+      yield record;
+    }
+    return;
+  }
   const content = fs.readFileSync(sourcePath);
   if (sourcePath.endsWith('.jsonl')) {
     for (const record of parseJendl5XsJsonl(content.toString('utf-8'))) {

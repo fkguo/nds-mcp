@@ -19,7 +19,7 @@ export interface Jendl5XsRecord {
   Z: number;
   A: number;
   state: number;
-  projectile: 'n' | 'p';
+  projectile: Projectile;
   mt: number;
   reaction: string;
   e_min_eV: number;
@@ -37,13 +37,24 @@ interface EndfLine {
 
 interface EndfParseHints {
   sourceName?: string;
-  projectile?: 'n' | 'p';
+  projectile?: Projectile;
   state?: number;
 }
 
 const XS_TEXT_FILE_RE = /\.(dat|endf|txt)$/i;
 const XS_GZIP_FILE_RE = /\.(dat|endf|txt)\.gz$/i;
 const XS_JSON_FILE_RE = /\.(json|jsonl)$/i;
+const XS_ZIP_FILE_RE = /\.zip$/i;
+
+export type Projectile = 'n' | 'p' | 'd' | 't' | 'h' | 'a' | 'g' | 'photo';
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    const [firstLine] = error.message.split('\n');
+    return (firstLine ?? error.message).trim();
+  }
+  return String(error);
+}
 
 function parseJsonRecord(content: string): Jendl5XsRecord {
   return JSON.parse(content) as Jendl5XsRecord;
@@ -102,10 +113,16 @@ function parseEndfLine(rawLine: string): EndfLine | null {
   };
 }
 
-function inferProjectileFromName(sourceName?: string): 'n' | 'p' {
+function inferProjectileFromName(sourceName?: string): Projectile {
   if (!sourceName) return 'n';
   const base = path.basename(sourceName).toLowerCase();
   if (base.startsWith('p_')) return 'p';
+  if (base.startsWith('d_')) return 'd';
+  if (base.startsWith('t_')) return 't';
+  if (base.startsWith('h_') || base.startsWith('he3_')) return 'h';
+  if (base.startsWith('a_') || base.startsWith('he4_')) return 'a';
+  if (base.startsWith('g_')) return 'g';
+  if (base.startsWith('photo_')) return 'photo';
   return 'n';
 }
 
@@ -119,7 +136,7 @@ function inferStateFromName(sourceName?: string): number {
   return Number.isFinite(state) && state > 0 ? state : 1;
 }
 
-function reactionLabelFor(projectile: 'n' | 'p', mt: number): string {
+function reactionLabelFor(projectile: Projectile, mt: number): string {
   if (projectile === 'n') {
     if (mt === 1) return 'n,total';
     if (mt === 2) return 'n,elastic';
@@ -144,7 +161,11 @@ function reactionLabelFor(projectile: 'n' | 'p', mt: number): string {
 function parseTab1Section(
   lines: EndfLine[],
   mt: number,
-  hints: Required<Pick<EndfParseHints, 'projectile' | 'state' | 'sourceName'>>,
+  hints: {
+    projectile: Projectile;
+    state: number;
+    sourceName: string;
+  },
 ): Jendl5XsRecord {
   if (lines.length < 3) {
     throw new Error(`MF=3 MT=${mt} section is too short`);
@@ -285,8 +306,36 @@ export function parseJendl5XsEndfText(content: string, hints: EndfParseHints = {
   return records;
 }
 
+function parseZipBuffer(buffer: Buffer, sourceName: string): Jendl5XsRecord[] {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'jendl5-xs-zip-'));
+  const zipPath = path.join(tmpRoot, 'input.zip');
+  fs.writeFileSync(zipPath, buffer);
+  try {
+    try {
+      execFileSync('unzip', ['-qq', '-o', zipPath, '-d', tmpRoot], { stdio: 'pipe' });
+    } catch (error) {
+      throw new Error(`Failed to extract zip source: ${sourceName}. ${errorMessage(error)}`);
+    }
+    const files = walkDirectory(tmpRoot);
+    const out: Jendl5XsRecord[] = [];
+    for (const filePath of files) {
+      const relative = path.relative(tmpRoot, filePath);
+      if (!isXsDataEntry(relative)) continue;
+      if (relative.toLowerCase().endsWith('.zip')) continue;
+      const records = parseXsDataBufferSkipBadZip(fs.readFileSync(filePath), relative);
+      for (const record of records) out.push(record);
+    }
+    return out;
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+}
+
 function parseXsDataBuffer(buffer: Buffer, sourceName: string): Jendl5XsRecord[] {
   const lower = sourceName.toLowerCase();
+  if (lower.endsWith('.zip')) {
+    return parseZipBuffer(buffer, sourceName);
+  }
   if (lower.endsWith('.jsonl')) {
     return parseJsonl(buffer.toString('utf-8'));
   }
@@ -306,8 +355,23 @@ function parseXsDataBuffer(buffer: Buffer, sourceName: string): Jendl5XsRecord[]
   }
 }
 
+function parseXsDataBufferSkipBadZip(buffer: Buffer, sourceName: string): Jendl5XsRecord[] {
+  try {
+    return parseXsDataBuffer(buffer, sourceName);
+  } catch (error) {
+    if (sourceName.toLowerCase().endsWith('.zip')) {
+      console.error(`[nds-mcp] Skipping invalid zip entry "${sourceName}": ${errorMessage(error)}`);
+      return [];
+    }
+    throw error;
+  }
+}
+
 function isXsDataEntry(entry: string): boolean {
-  return XS_JSON_FILE_RE.test(entry) || XS_TEXT_FILE_RE.test(entry) || XS_GZIP_FILE_RE.test(entry);
+  return XS_JSON_FILE_RE.test(entry)
+    || XS_TEXT_FILE_RE.test(entry)
+    || XS_GZIP_FILE_RE.test(entry)
+    || XS_ZIP_FILE_RE.test(entry);
 }
 
 export async function* parseJendl5XsArchive(tarGzBuffer: Buffer): AsyncIterable<Jendl5XsRecord> {
@@ -358,11 +422,16 @@ export async function* parseJendl5XsArchiveFile(archivePath: string): AsyncItera
   try {
     // Unpack once, then parse files from local disk (O(N)).
     try {
-      execFileSync('tar', ['-xzf', archivePath, '-C', tmpRoot], { stdio: 'inherit' });
-    } catch {
+      if (archivePath.toLowerCase().endsWith('.zip')) {
+        execFileSync('unzip', ['-qq', '-o', archivePath, '-d', tmpRoot], { stdio: 'pipe' });
+      } else {
+        execFileSync('tar', ['-xzf', archivePath, '-C', tmpRoot], { stdio: 'pipe' });
+      }
+    } catch (error) {
       throw new Error(
         `Failed to extract archive: ${archivePath}. ` +
-        'Likely insufficient tmp disk space. ' +
+        'Likely insufficient tmp disk space or unsupported archive format. ' +
+        `Cause: ${errorMessage(error)}. ` +
         'Workaround: extract archive manually to a directory and use that directory as --source.',
       );
     }
@@ -372,7 +441,7 @@ export async function* parseJendl5XsArchiveFile(archivePath: string): AsyncItera
       const relative = path.relative(tmpRoot, filePath);
       if (!isXsDataEntry(relative)) continue;
       const content = fs.readFileSync(filePath);
-      const records = parseXsDataBuffer(content, relative);
+      const records = parseXsDataBufferSkipBadZip(content, relative);
       for (const record of records) {
         yield record;
       }
@@ -387,7 +456,7 @@ export function* parseJendl5XsDirectoryRecords(dirPath: string): Iterable<Jendl5
   for (const filePath of files) {
     const content = fs.readFileSync(filePath);
     const relative = path.relative(dirPath, filePath);
-    const records = parseXsDataBuffer(content, relative);
+    const records = parseXsDataBufferSkipBadZip(content, relative);
     for (const record of records) {
       yield record;
     }

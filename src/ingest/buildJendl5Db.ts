@@ -16,7 +16,7 @@ function validateXsRecord(record: {
   Z: number;
   A: number;
   state: number;
-  projectile: 'n' | 'p';
+  projectile: string;
   mt: number;
   reaction: string;
   points: Array<{ point_index: number; e_eV: number; sigma_b: number }>;

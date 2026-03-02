@@ -15,6 +15,7 @@ By default it downloads from this repo's GitHub Releases (override via `NDS_DB_D
 Release assets use a single compressed format: `*.sqlite.gz` (auto-decompressed after download).
 
 Optional tools `JENDL-5` / `EXFOR` use separate SQLite files and are auto-downloaded on demand.
+Maintainer ingest support also includes `FENDL-3.2c` and `IRDFF-II` optional SQLite files.
 `CODATA` is bundled inside `nds.sqlite`.
 
 ## Databases
@@ -24,8 +25,10 @@ Optional tools `JENDL-5` / `EXFOR` use separate SQLite files and are auto-downlo
 | `nds.sqlite` | `~/.nds-mcp/nds.sqlite` | Auto-download on server startup *(required)* | AME2020 masses + reaction Q-values; NUBASE2020 nuclear properties; charge radii (IAEA + Li2021 laser spectroscopy); ENSDF (levels, gammas, decay feedings, references); TUNL light-nuclei resonance/level data (A=3–20); CODATA fundamental constants |
 | `jendl5.sqlite` *(optional)* | `~/.nds-mcp/jendl5.sqlite` | Auto-download on first call to JENDL-5 tools | JENDL-5 decay data + radiation spectra; JENDL-5 pointwise cross sections + ENDF-6 interpolation laws |
 | `exfor.sqlite` *(optional)* | `~/.nds-mcp/exfor.sqlite` | Auto-download on first call to EXFOR tools | EXFOR experimental data points (SIG/MACS/...) + per-entry metadata |
+| `fendl32c.sqlite` *(optional, maintainer ingest)* | `~/.nds-mcp/fendl32c.sqlite` | Built via `nds-mcp ingest --fendl` (status visible in `nds_info`) | FENDL-3.2c transport ENDF data (photo-atomic, neutron, proton, deuteron) |
+| `irdff2.sqlite` *(optional, maintainer ingest)* | `~/.nds-mcp/irdff2.sqlite` | Built via `nds-mcp ingest --irdff` (status visible in `nds_info`) | IRDFF-II dosimetry neutron cross sections |
 
-You can always bring your own files by setting `NDS_DB_PATH` / `NDS_JENDL5_DB_PATH` / `NDS_EXFOR_DB_PATH`.
+You can always bring your own files by setting `NDS_DB_PATH` / `NDS_JENDL5_DB_PATH` / `NDS_EXFOR_DB_PATH` / `NDS_FENDL_DB_PATH` / `NDS_IRDFF_DB_PATH`.
 
 ### Optional DB auto-download trigger
 
@@ -307,6 +310,10 @@ Cross-section responses include explicit context fields: `energy_unit="eV"`, `cr
 | `NDS_JENDL5_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `jendl5.sqlite`. |
 | `NDS_EXFOR_DB_PATH` | `~/.nds-mcp/exfor.sqlite` | Optional EXFOR DB path (Phase 2c tools). |
 | `NDS_EXFOR_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `exfor.sqlite`. |
+| `NDS_FENDL_DB_PATH` | `~/.nds-mcp/fendl32c.sqlite` | Optional FENDL-3.2c DB path (maintainer ingest / status in `nds_info`). |
+| `NDS_FENDL_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `fendl32c.sqlite`. |
+| `NDS_IRDFF_DB_PATH` | `~/.nds-mcp/irdff2.sqlite` | Optional IRDFF-II DB path (maintainer ingest / status in `nds_info`). |
+| `NDS_IRDFF_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `irdff2.sqlite`. |
 | `NDS_DB_DOWNLOAD_URL` | GitHub Releases latest | Custom download URL for the SQLite file. |
 | `NDS_TOOL_MODE` | `standard` | Set to `full` to expose all tools. |
 
@@ -326,7 +333,8 @@ scripts/download-jendl5-xs.sh ~/.nds-mcp/raw/jendl5-n-300K.tar.gz
 pnpm run ingest:jendl5-xs -- --source ~/.nds-mcp/raw/jendl5-n-300K.tar.gz --output ~/.nds-mcp/jendl5.sqlite
 ```
 
-`--jendl5-xs` accepts tar/tgz, extracted directory, single ENDF text file (`.dat` / `.endf` / `.txt`, including `.gz`), and json/jsonl sources.
+`--jendl5-xs` accepts tar/tgz/zip archives, extracted directories, single ENDF text files (`.dat` / `.endf` / `.txt`, including `.gz`), and json/jsonl sources.
+Zip extraction uses system `unzip`; install it on hosts that run ingest jobs.
 
 Release upload flow for optional DBs:
 
