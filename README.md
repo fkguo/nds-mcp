@@ -29,7 +29,7 @@ You can always bring your own files by setting `NDS_DB_PATH` / `NDS_JENDL5_DB_PA
 
 ### Optional DB auto-download trigger
 
-- `jendl5.sqlite` is downloaded when calling `nds_get_radiation_spectrum`, `nds_get_reaction_info`, `nds_get_cross_section_table`, or `nds_interpolate_cross_section`.
+- `jendl5.sqlite` is downloaded when calling `nds_get_radiation_spectrum`, `nds_list_available_targets`, `nds_get_reaction_info`, `nds_get_cross_section_table`, or `nds_interpolate_cross_section`.
 - `exfor.sqlite` is downloaded when calling `nds_search_exfor` or `nds_get_exfor_entry`.
 - These optional SQLite assets are published on this repo's GitHub Releases page (latest release assets).
 - Download URL can point to either plain `.sqlite` or compressed `.sqlite.gz`; server auto-gunzips when needed.

@@ -213,13 +213,20 @@ async function requireResolvedMeta(
 }
 
 async function getXsVersion(dbPath: string): Promise<string | null> {
-  const rows = await sqlite3JsonQuery(
-    dbPath,
-    "SELECT value FROM jendl5_meta WHERE key='jendl5_xs_version' LIMIT 1",
-  );
-  if (rows.length === 0) return null;
-  const value = (rows[0] as { value?: unknown }).value;
-  return typeof value === 'string' ? value : null;
+  try {
+    const rows = await sqlite3JsonQuery(
+      dbPath,
+      "SELECT value FROM jendl5_meta WHERE key='jendl5_xs_version' LIMIT 1",
+    );
+    if (rows.length === 0) return null;
+    const value = (rows[0] as { value?: unknown }).value;
+    return typeof value === 'string' ? value : null;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('no such table: jendl5_meta')) {
+      return null;
+    }
+    throw err;
+  }
 }
 
 export async function listAvailableTargetsByZ(
@@ -243,7 +250,23 @@ export async function getReactionInfo(
 ): Promise<Record<string, unknown> | null> {
   await requireXsSchema(dbPath);
   const available = await listAvailableReactions(dbPath, params);
-  if (available.length === 0) return null;
+  if (available.length === 0) {
+    const availableTargets = await listAvailableTargetsForZ(dbPath, params.Z, params.projectile);
+    if (availableTargets.length > 0) {
+      throw invalidParams(
+        `No cross section for requested target combination Z=${params.Z}, A=${params.A}, state=${params.state}, projectile=${params.projectile}`,
+        {
+          requested_Z: params.Z,
+          requested_A: params.A,
+          requested_state: params.state,
+          requested_projectile: params.projectile,
+          available_targets: availableTargets,
+          how_to_explore: 'Call nds_list_available_targets with the same Z/projectile to discover valid A/state combinations.',
+        },
+      );
+    }
+    return null;
+  }
   const availableReactions = [...new Set(available.map((row) => row.reaction))];
   const aliasSuggestion = buildReactionAliasSuggestion(
     params,

@@ -210,4 +210,22 @@ INSERT INTO exfor_points VALUES ('E002', '001', 1, NULL, 30.0, 0.12, 0.005);
     expect(data.suggested_reaction).toBe('n,t');
     expect(String(data.suggestion_reason)).toContain('Li-6');
   });
+
+  it('nds_get_reaction_info returns INVALID_PARAMS with available_targets on target mismatch', async () => {
+    const result = await handleToolCall('nds_get_reaction_info', {
+      Z: 26,
+      A: 57,
+      state: 0,
+      projectile: 'n',
+    });
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.error.code).toBe('INVALID_PARAMS');
+    expect(Array.isArray(data.error.data?.available_targets)).toBe(true);
+    expect(data.error.data?.requested_Z).toBe(26);
+    expect(data.error.data?.requested_A).toBe(57);
+    expect(data.error.data?.requested_state).toBe(0);
+    expect(data.error.data?.requested_projectile).toBe('n');
+    expect(data.error.data.available_targets.some((row: any) => row.A === 56 && row.state === 0)).toBe(true);
+  });
 });
