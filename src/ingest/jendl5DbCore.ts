@@ -1,7 +1,15 @@
 import * as fs from 'fs';
+import * as zlib from 'zlib';
 import { execFileSync } from 'child_process';
 import { parseJendl5DecArchive, parseJendl5DecJsonl, type Jendl5DecayRecord } from './parseJendl5Dec.js';
-import { parseJendl5XsArchive, parseJendl5XsJsonl, type Jendl5XsRecord } from './parseJendl5Xs.js';
+import {
+  parseJendl5XsArchiveFile,
+  parseJendl5XsDirectoryRecords,
+  parseJendl5XsFile,
+  parseJendl5XsEndfText,
+  parseJendl5XsJsonl,
+  type Jendl5XsRecord,
+} from './parseJendl5Xs.js';
 
 export function sqlEscape(value: string): string {
   return value.replace(/'/g, "''");
@@ -13,7 +21,10 @@ export function sqlNum(value: number | null | undefined): string {
 }
 
 export function runSql(dbPath: string, sql: string): void {
-  execFileSync('sqlite3', [dbPath, sql], { stdio: 'inherit' });
+  execFileSync('sqlite3', ['-bail', dbPath], {
+    input: sql,
+    stdio: ['pipe', 'inherit', 'inherit'],
+  });
 }
 
 export function ensureJendl5Schema(dbPath: string): void {
@@ -101,13 +112,51 @@ export async function loadDecayRecords(sourcePath: string): Promise<Jendl5DecayR
 }
 
 export async function loadXsRecords(sourcePath: string): Promise<Jendl5XsRecord[]> {
-  const content = fs.readFileSync(sourcePath);
-  if (sourcePath.endsWith('.tar.gz') || sourcePath.endsWith('.tgz')) {
-    const records: Jendl5XsRecord[] = [];
-    for await (const record of parseJendl5XsArchive(content)) {
-      records.push(record);
-    }
-    return records;
+  const records: Jendl5XsRecord[] = [];
+  for await (const record of streamXsRecords(sourcePath)) {
+    records.push(record);
   }
-  return parseJendl5XsJsonl(content.toString('utf-8'));
+  return records;
+}
+
+export async function* streamXsRecords(sourcePath: string): AsyncIterable<Jendl5XsRecord> {
+  const stat = fs.statSync(sourcePath);
+  if (stat.isDirectory()) {
+    for (const record of parseJendl5XsDirectoryRecords(sourcePath)) {
+      yield record;
+    }
+    return;
+  }
+  if (sourcePath.endsWith('.tar.gz') || sourcePath.endsWith('.tgz')) {
+    for await (const record of parseJendl5XsArchiveFile(sourcePath)) {
+      yield record;
+    }
+    return;
+  }
+  const content = fs.readFileSync(sourcePath);
+  if (sourcePath.endsWith('.jsonl')) {
+    for (const record of parseJendl5XsJsonl(content.toString('utf-8'))) {
+      yield record;
+    }
+    return;
+  }
+  if (sourcePath.endsWith('.json')) {
+    yield parseJendl5XsFile(content.toString('utf-8'));
+    return;
+  }
+  if (sourcePath.endsWith('.gz')) {
+    for (const record of parseJendl5XsEndfText(zlib.gunzipSync(content).toString('utf-8'), { sourceName: sourcePath })) {
+      yield record;
+    }
+    return;
+  }
+  if (/\.(dat|endf|txt)$/i.test(sourcePath)) {
+    for (const record of parseJendl5XsEndfText(content.toString('utf-8'), { sourceName: sourcePath })) {
+      yield record;
+    }
+    return;
+  }
+  for (const record of parseJendl5XsJsonl(content.toString('utf-8'))) {
+    yield record;
+  }
 }

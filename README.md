@@ -2,7 +2,7 @@
 
 Nuclear Data Services MCP server — offline SQLite-backed nuclear physics data for AI agents.
 
-Provides 19 tools covering atomic masses (AME2020), nuclear properties (NUBASE2020), charge radii (IAEA + laser spectroscopy), energy levels and gamma transitions (ENSDF), light nuclei resonance data (TUNL, A=3–20), bibliographic references, JENDL-5 decay/cross-section data, EXFOR experimental data, and CODATA fundamental constants.
+Provides 20 standard tools covering atomic masses (AME2020), nuclear properties (NUBASE2020), charge radii (IAEA + laser spectroscopy), energy levels and gamma transitions (ENSDF), light nuclei resonance data (TUNL, A=3–20), bibliographic references, JENDL-5 decay/cross-section data, EXFOR experimental data, CODATA fundamental constants, and update checks.
 
 ## Quick Start
 
@@ -31,6 +31,7 @@ You can always bring your own files by setting `NDS_DB_PATH` / `NDS_JENDL5_DB_PA
 - `jendl5.sqlite` is downloaded when calling `nds_get_radiation_spectrum`, `nds_get_cross_section_table`, or `nds_interpolate_cross_section`.
 - `exfor.sqlite` is downloaded when calling `nds_search_exfor` or `nds_get_exfor_entry`.
 - These optional SQLite assets are published on this repo's GitHub Releases page (latest release assets).
+- For maintainers, `jendl5.sqlite` should include both decay tables and XS tables (`jendl5_xs_meta` / `jendl5_xs_points` / `jendl5_xs_interp`) before release upload.
 
 ## Install (Optional)
 
@@ -164,6 +165,8 @@ The server communicates over stdin/stdout (MCP protocol). Diagnostic messages go
 | Tool | Description |
 |------|-------------|
 | `nds_info` | Database metadata: data versions, nuclide counts, file hash, optional DB status, and build/source metadata |
+| `nds_check_update` | Check npm registry for newer `nds-mcp` version (read-only; no update performed) |
+| `nds_self_update` | Update `nds-mcp` from npm (`confirm=true` required; `full` mode only) |
 | `nds_find_nuclide` | Find nuclides by element, Z, and/or A (NUBASE2020) |
 | `nds_get_mass` | Atomic mass data: mass excess, binding energy/A, atomic mass (AME2020) |
 | `nds_get_separation_energy` | Nucleon separation energies: Sn, Sp, S2n, S2p (AME2020) |
@@ -221,6 +224,41 @@ Use `mode=compare` to get all source-tagged values plus an explicit comparison s
 
 This reflects the current cross-source contract: return source-tagged values by default, and keep `recommended`/`best` as an additional field.
 
+## Example: JENDL-5 Pb-208 `n,gamma`
+
+Raw points table:
+
+```json
+{
+  "tool": "nds_get_cross_section_table",
+  "args": {
+    "Z": 82,
+    "A": 208,
+    "projectile": "n",
+    "mt": 102,
+    "mode": "raw",
+    "limit": 20
+  }
+}
+```
+
+Single-energy interpolation:
+
+```json
+{
+  "tool": "nds_interpolate_cross_section",
+  "args": {
+    "Z": 82,
+    "A": 208,
+    "projectile": "n",
+    "mt": 102,
+    "energy_eV": 0.0253
+  }
+}
+```
+
+If requested `mt`/`reaction` is absent for the nuclide, the server returns `INVALID_PARAMS` with `available_mts` and `available_reactions`.
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -237,7 +275,28 @@ This reflects the current cross-source contract: return source-tagged values by 
 
 Maintainer-only: MCP clients never call these commands.
 
-See `RUNBOOK.md` (repo only) for the build SOP and raw input requirements.
+See `RUNBOOK.md` (repo only) for full SOP and raw input requirements. Minimal JENDL-5 build:
+
+```bash
+# Decay sublibrary
+scripts/download-jendl5-dec.sh ~/.nds-mcp/raw/jendl5-dec_upd5.tar.gz
+pnpm run ingest:jendl5-dec -- --source ~/.nds-mcp/raw/jendl5-dec_upd5.tar.gz --output ~/.nds-mcp/jendl5.sqlite
+
+# Neutron pointwise XS sublibrary (300K, full archive)
+scripts/download-jendl5-xs.sh ~/.nds-mcp/raw/jendl5-n-300K.tar.gz
+pnpm run ingest:jendl5-xs -- --source ~/.nds-mcp/raw/jendl5-n-300K.tar.gz --output ~/.nds-mcp/jendl5.sqlite
+```
+
+`--jendl5-xs` accepts tar/tgz, extracted directory, single ENDF text file (`.dat` / `.endf` / `.txt`, including `.gz`), and json/jsonl sources.
+
+Release upload flow for optional DBs:
+
+```bash
+scripts/check-db.sh --only main,jendl5
+scripts/release-phase2-dbs.sh --tag <tag> --repo fkguo/nds-mcp --jendl5 ~/.nds-mcp/jendl5.sqlite
+```
+
+Rule: build sqlite first, verify it locally, then upload release asset.
 
 ## License
 

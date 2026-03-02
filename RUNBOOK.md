@@ -38,6 +38,18 @@ scripts/download-jendl5-dec.sh ~/.nds-mcp/raw/jendl5-dec_upd5.tar.gz
 pnpm run ingest:jendl5-dec -- --source ~/.nds-mcp/raw/jendl5-dec_upd5.tar.gz --output ~/.nds-mcp/jendl5.sqlite
 ```
 
+JENDL-5 中子 XS（`jendl5.sqlite`，300K pointwise）：
+
+```bash
+scripts/download-jendl5-xs.sh ~/.nds-mcp/raw/jendl5-n-300K.tar.gz
+pnpm run ingest:jendl5-xs -- --source ~/.nds-mcp/raw/jendl5-n-300K.tar.gz --output ~/.nds-mcp/jendl5.sqlite
+```
+
+说明：`--jendl5-xs` 支持以下输入形态（推荐优先官方 `jendl5-n-300K.tar.gz`）：
+- tar/tgz（可包含 `.dat.gz` / `.dat` / `.endf` / `.txt` 或 json/jsonl）
+- 已解压目录（递归扫描同类文件）
+- 单个 ENDF 文本文件（含 `.gz`）
+
 EXFOR 全量构建（推荐）：
 
 ```bash
@@ -95,3 +107,22 @@ TS
 - `x4sqlite` 链接失效：用 `x4i3` 路径（上面 EXFOR 全量构建命令）。
 - `x4i3` 异常：`python3 -m pip install --upgrade --user x4i3`。
 - 重建：`rm -f ~/.nds-mcp/{jendl5.sqlite,exfor.sqlite}` 后重跑。
+
+## 6) Release Upload（可选 DB）
+
+先构建 sqlite 再 release（不可跳过）：
+
+```bash
+# 全量可选 DB 校验
+scripts/check-db.sh
+
+# 仅发布 jendl5.sqlite 时，使用 scoped 校验
+scripts/check-db.sh --only main,jendl5
+
+scripts/release-phase2-dbs.sh --tag <tag> --repo fkguo/nds-mcp \
+  --jendl5 ~/.nds-mcp/jendl5.sqlite \
+  --exfor ~/.nds-mcp/exfor.sqlite \
+  --ddep ~/.nds-mcp/ddep.sqlite
+```
+
+如仅发布 `jendl5.sqlite`，仅传 `--jendl5` 即可；但上传前必须保证本地 `jendl5_xs_meta` / `jendl5_xs_points` / `jendl5_xs_interp` 非空。

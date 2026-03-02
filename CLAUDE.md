@@ -20,6 +20,17 @@ Offline SQLite-backed MCP server for nuclear physics data queries.
 - **sqlite3 CLI**: Uses `src/shared/sqlite3Cli.ts` (subprocess, not binding)
 - **No artifact system**: Simpler than pdg-mcp; all results inline
 - **Auto-download**: On first start, downloads pre-built SQLite to `~/.nds-mcp/nds.sqlite`
+- **DB integrity policy (required)**:
+  - Every auto-downloaded SQLite file (`nds.sqlite`, `jendl5.sqlite`, `exfor.sqlite`, `ddep.sqlite`) must pass:
+    1) non-empty file check, 2) SQLite header check (`SQLite format 3\0`).
+  - This policy applies to existing DBs and any newly added optional DBs in future changes.
+- **DDEP visibility policy (required)**:
+  - DDEP is hidden/internal-only (`full` mode); it is not part of public standard-mode docs.
+  - `README.md` must not expose DDEP tools/env vars unless explicitly deciding to make DDEP public.
+  - Internal docs (`CLAUDE.md`, `RUNBOOK.md`) may keep DDEP operational details.
+- **Engineering principle (required)**:
+  - Do not over-engineer. Prefer the simplest mechanism that reliably solves the current problem.
+  - New validation/automation must have clear operational value; avoid adding knobs by default.
 - **Network fallback**: If network access fails (download/search/API timeout), try proxy first:
   `export https_proxy=http://127.0.0.1:7890 http_proxy=http://127.0.0.1:7890 all_proxy=socks5://127.0.0.1:7890`
 - **Cross-source default rule**: If the same physical observable exists in multiple databases/sources, query tools should return source-tagged values from each source by default (and provide a clear recommended/best value only as an additional field, not by silently dropping alternatives).
@@ -70,3 +81,17 @@ Download from: https://www-nds.iaea.org/amdc/ (add `.txt` to AME/NUBASE filename
 ```bash
 pnpm run ingest -- --tunl-only --db /path/to/nds.sqlite --tunl-dir /path/to/raw/tunl
 ```
+
+### JENDL-5 optional DB rebuild (maintainer)
+
+```bash
+# Decay
+scripts/download-jendl5-dec.sh ~/.nds-mcp/raw/jendl5-dec_upd5.tar.gz
+pnpm run ingest:jendl5-dec -- --source ~/.nds-mcp/raw/jendl5-dec_upd5.tar.gz --output ~/.nds-mcp/jendl5.sqlite
+
+# Neutron XS (300K pointwise)
+scripts/download-jendl5-xs.sh ~/.nds-mcp/raw/jendl5-n-300K.tar.gz
+pnpm run ingest:jendl5-xs -- --source ~/.nds-mcp/raw/jendl5-n-300K.tar.gz --output ~/.nds-mcp/jendl5.sqlite
+```
+
+Release note (required): build `jendl5.sqlite` locally and verify (`scripts/check-db.sh --only main,jendl5`) before uploading any release asset.

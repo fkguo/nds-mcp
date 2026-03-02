@@ -36,6 +36,11 @@ interface XsMetaRow {
   n_points: number;
 }
 
+interface AvailableXsRow {
+  mt: number;
+  reaction: string;
+}
+
 async function requireXsSchema(dbPath: string): Promise<void> {
   const rows = await sqlite3JsonQuery(
     dbPath,
@@ -62,6 +67,41 @@ async function resolveXsMeta(dbPath: string, params: CrossSectionLookup): Promis
     `SELECT * FROM jendl5_xs_meta WHERE ${conditions.join(' AND ')} LIMIT 1`,
   );
   return rows.length === 0 ? null : (rows[0] as XsMetaRow);
+}
+
+async function listAvailableReactions(
+  dbPath: string,
+  params: CrossSectionLookup,
+): Promise<AvailableXsRow[]> {
+  const rows = await sqlite3JsonQuery(
+    dbPath,
+    `SELECT mt, reaction
+     FROM jendl5_xs_meta
+     WHERE Z=${params.Z} AND A=${params.A} AND state=${params.state} AND projectile='${params.projectile}'
+     ORDER BY mt`,
+  );
+  return rows as AvailableXsRow[];
+}
+
+async function requireResolvedMeta(
+  dbPath: string,
+  params: CrossSectionLookup,
+): Promise<XsMetaRow | null> {
+  const meta = await resolveXsMeta(dbPath, params);
+  if (meta) return meta;
+
+  const available = await listAvailableReactions(dbPath, params);
+  if (available.length === 0) return null;
+
+  throw invalidParams(
+    `Requested reaction not found for Z=${params.Z}, A=${params.A}, state=${params.state}, projectile=${params.projectile}`,
+    {
+      requested_mt: params.mt ?? null,
+      requested_reaction: params.reaction ?? null,
+      available_mts: [...new Set(available.map((row) => row.mt))],
+      available_reactions: [...new Set(available.map((row) => row.reaction))],
+    },
+  );
 }
 
 async function loadPoints(dbPath: string, xsId: number, eMin?: number, eMax?: number): Promise<XsPoint[]> {
@@ -100,13 +140,30 @@ export async function queryCrossSectionTable(
   params: CrossSectionTableParams,
 ): Promise<Record<string, unknown> | null> {
   await requireXsSchema(dbPath);
-  const meta = await resolveXsMeta(dbPath, params);
+  const meta = await requireResolvedMeta(dbPath, params);
   if (!meta) return null;
 
   const eMin = params.e_min_eV ?? meta.e_min_eV;
   const eMax = params.e_max_eV ?? meta.e_max_eV;
-  if (eMin <= 0 || eMax <= 0 || eMin > eMax) {
+  if (eMin <= 0 || eMax <= 0) {
     throw invalidParams('Invalid e_min_eV/e_max_eV range');
+  }
+  if (params.e_min_eV !== undefined && params.e_max_eV !== undefined && params.e_min_eV > params.e_max_eV) {
+    throw invalidParams('Invalid e_min_eV/e_max_eV range');
+  }
+  const effectiveEMin = Math.max(eMin, meta.e_min_eV);
+  const effectiveEMax = Math.min(eMax, meta.e_max_eV);
+  const rangeClipped = effectiveEMin !== eMin || effectiveEMax !== eMax;
+  if (effectiveEMin > effectiveEMax) {
+    throw invalidParams(
+      `Requested energy window [${eMin}, ${eMax}] eV is outside tabulated range [${meta.e_min_eV}, ${meta.e_max_eV}] eV`,
+      {
+        requested_e_min_eV: eMin,
+        requested_e_max_eV: eMax,
+        tabulated_e_min_eV: meta.e_min_eV,
+        tabulated_e_max_eV: meta.e_max_eV,
+      },
+    );
   }
 
   if (params.mode === 'raw') {
@@ -114,7 +171,7 @@ export async function queryCrossSectionTable(
       dbPath,
       `SELECT point_index, e_eV, sigma_b
        FROM jendl5_xs_points
-       WHERE xs_id=${meta.id} AND e_eV >= ${eMin} AND e_eV <= ${eMax}
+       WHERE xs_id=${meta.id} AND e_eV >= ${effectiveEMin} AND e_eV <= ${effectiveEMax}
        ORDER BY point_index
        LIMIT ${params.limit} OFFSET ${params.offset}`,
     );
@@ -122,13 +179,18 @@ export async function queryCrossSectionTable(
       ...meta,
       mode: 'raw',
       source: 'JENDL-5 neutron 300K (Doppler-broadened)',
+      requested_e_min_eV: eMin,
+      requested_e_max_eV: eMax,
+      e_min_eV: effectiveEMin,
+      e_max_eV: effectiveEMax,
+      range_clipped: rangeClipped,
       points: rows,
     };
   }
 
   const points = await loadPoints(dbPath, meta.id, undefined, undefined);
   const segments = await loadInterpSegments(dbPath, meta.id);
-  const energies = logGrid(eMin, eMax, params.n_points);
+  const energies = logGrid(effectiveEMin, effectiveEMax, params.n_points);
   const sampled = energies.map((energy) => {
     const result = interpolateTab1(points, segments, energy);
     return { e_eV: energy, sigma_b: result.sigma_b, interpolation_method: result.interpolation_method };
@@ -138,6 +200,11 @@ export async function queryCrossSectionTable(
     ...meta,
     mode: 'sampled',
     source: 'JENDL-5 neutron 300K (Doppler-broadened)',
+    requested_e_min_eV: eMin,
+    requested_e_max_eV: eMax,
+    e_min_eV: effectiveEMin,
+    e_max_eV: effectiveEMax,
+    range_clipped: rangeClipped,
     points: sampled,
   };
 }
@@ -147,8 +214,23 @@ export async function interpolateCrossSection(
   params: CrossSectionInterpolationParams,
 ): Promise<Record<string, unknown> | null> {
   await requireXsSchema(dbPath);
-  const meta = await resolveXsMeta(dbPath, params);
+  const meta = await requireResolvedMeta(dbPath, params);
   if (!meta) return null;
+  if (params.energy_eV <= 0) {
+    throw invalidParams('Invalid energy_eV (must be > 0)', {
+      requested_energy_eV: params.energy_eV,
+    });
+  }
+  if (params.energy_eV < meta.e_min_eV || params.energy_eV > meta.e_max_eV) {
+    throw invalidParams(
+      `Requested energy ${params.energy_eV} eV is outside tabulated range [${meta.e_min_eV}, ${meta.e_max_eV}] eV`,
+      {
+        requested_energy_eV: params.energy_eV,
+        tabulated_e_min_eV: meta.e_min_eV,
+        tabulated_e_max_eV: meta.e_max_eV,
+      },
+    );
+  }
 
   const points = await loadPoints(dbPath, meta.id);
   const segments = await loadInterpSegments(dbPath, meta.id);

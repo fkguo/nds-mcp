@@ -61,7 +61,7 @@ function usage(): string {
   return [
     'Usage:',
     '  nds-mcp ingest --jendl5-dec --source <path> [--output ~/.nds-mcp/jendl5.sqlite]',
-    '  nds-mcp ingest --jendl5-xs --source <path> [--output ~/.nds-mcp/jendl5.sqlite]',
+    '  nds-mcp ingest --jendl5-xs --source <path-to-jsonl|path-to-tar|path-to-dir|path-to-endf(.gz)> [--output ~/.nds-mcp/jendl5.sqlite]',
     '  nds-mcp ingest --exfor --source <path> [--output ~/.nds-mcp/exfor.sqlite]',
     '  nds-mcp ingest --ddep --source <path> [--output ~/.nds-mcp/ddep.sqlite]',
     '  nds-mcp ingest --codata [--source <path-or-url>] [--output ~/.nds-mcp/nds.sqlite]',
