@@ -31,11 +31,16 @@ describe('NDS MCP tool contracts', () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
+  it('standard tools include nds_get_reaction_info', () => {
+    const tools = getTools('standard');
+    expect(tools.some(t => t.name === 'nds_get_reaction_info')).toBe(true);
+  });
+
   it('expected tool count', () => {
-    expect(TOOL_SPECS.length).toBe(20);
+    expect(TOOL_SPECS.length).toBe(24);
   });
 
   it('expected standard-mode tool count', () => {
-    expect(getTools('standard').length).toBe(19);
+    expect(getTools('standard').length).toBe(22);
   });
 });

@@ -2,7 +2,7 @@
 
 Nuclear Data Services MCP server — offline SQLite-backed nuclear physics data for AI agents.
 
-Provides 20 standard tools covering atomic masses (AME2020), nuclear properties (NUBASE2020), charge radii (IAEA + laser spectroscopy), energy levels and gamma transitions (ENSDF), light nuclei resonance data (TUNL, A=3–20), bibliographic references, JENDL-5 decay/cross-section data, EXFOR experimental data, CODATA fundamental constants, and update checks.
+Provides 22 standard tools covering atomic masses (AME2020), nuclear properties (NUBASE2020), charge radii (IAEA + laser spectroscopy), energy levels and gamma transitions (ENSDF), light nuclei resonance data (TUNL, A=3–20), bibliographic references, JENDL-5 decay/cross-section data, EXFOR experimental data, CODATA fundamental constants, and update checks.
 
 ## Quick Start
 
@@ -12,6 +12,7 @@ npx -y nds-mcp
 
 The pre-built SQLite database (~85 MB) is automatically downloaded to `~/.nds-mcp/nds.sqlite` on first launch.
 By default it downloads from this repo's GitHub Releases (override via `NDS_DB_DOWNLOAD_URL`).
+Release assets use a single compressed format: `*.sqlite.gz` (auto-decompressed after download).
 
 Optional tools `JENDL-5` / `EXFOR` use separate SQLite files and are auto-downloaded on demand.
 `CODATA` is bundled inside `nds.sqlite`.
@@ -28,9 +29,10 @@ You can always bring your own files by setting `NDS_DB_PATH` / `NDS_JENDL5_DB_PA
 
 ### Optional DB auto-download trigger
 
-- `jendl5.sqlite` is downloaded when calling `nds_get_radiation_spectrum`, `nds_get_cross_section_table`, or `nds_interpolate_cross_section`.
+- `jendl5.sqlite` is downloaded when calling `nds_get_radiation_spectrum`, `nds_get_reaction_info`, `nds_get_cross_section_table`, or `nds_interpolate_cross_section`.
 - `exfor.sqlite` is downloaded when calling `nds_search_exfor` or `nds_get_exfor_entry`.
 - These optional SQLite assets are published on this repo's GitHub Releases page (latest release assets).
+- Download URL can point to either plain `.sqlite` or compressed `.sqlite.gz`; server auto-gunzips when needed.
 - For maintainers, `jendl5.sqlite` should include both decay tables and XS tables (`jendl5_xs_meta` / `jendl5_xs_points` / `jendl5_xs_interp`) before release upload.
 
 ## Install (Optional)
@@ -179,6 +181,8 @@ The server communicates over stdin/stdout (MCP protocol). Diagnostic messages go
 | `nds_query_decay_feedings` | Beta/EC decay feeding patterns from ENSDF |
 | `nds_lookup_reference` | ENSDF/NSR bibliographic references |
 | `nds_get_radiation_spectrum` | JENDL-5 decay radiation spectra (discrete lines + continuous summaries) |
+| `nds_list_available_targets` | List available JENDL-5 XS targets (A/state) for a given Z/projectile |
+| `nds_get_reaction_info` | List available JENDL-5 reaction channels for one target (mt/reaction/e-range/point-count) |
 | `nds_get_cross_section_table` | JENDL-5 cross-section tables (`mode=raw|sampled`) |
 | `nds_interpolate_cross_section` | ENDF-6 NBT/INT interpolation at one incident energy |
 | `nds_search_exfor` | Search EXFOR data points (supports `quantity=SIG|MACS|...`) |
@@ -257,7 +261,42 @@ Single-energy interpolation:
 }
 ```
 
+Optional clamped interpolation (instead of out-of-range error):
+
+```json
+{
+  "tool": "nds_interpolate_cross_section",
+  "args": {
+    "Z": 82,
+    "A": 208,
+    "projectile": "n",
+    "mt": 102,
+    "energy_eV": 1000000000000,
+    "on_out_of_range": "clamp"
+  }
+}
+```
+
+Reaction channel discovery for one target:
+
+```json
+{
+  "tool": "nds_get_reaction_info",
+  "args": {
+    "Z": 82,
+    "A": 208,
+    "state": 0,
+    "projectile": "n"
+  }
+}
+```
+
 If requested `mt`/`reaction` is absent for the nuclide, the server returns `INVALID_PARAMS` with `available_mts` and `available_reactions`.
+If `Z` exists but requested `A/state` has no XS rows, server returns `INVALID_PARAMS` with `available_targets` (instead of generic not-found).
+For common naming confusion (e.g., Li-6 `n,a` vs ENDF/JENDL `n,t` MT=105), error payload may include `suggested_reaction`.
+`nds_interpolate_cross_section` defaults to `on_out_of_range="error"` (current behavior). With `on_out_of_range="clamp"`, response includes `clamped`, `requested_energy_eV`, `effective_energy_eV`, `tabulated_e_min_eV`, and `tabulated_e_max_eV`.
+For `nds_search_exfor` INVALID_PARAMS, payload includes structured guidance: parameter dependency/mutual-exclusion rules, copyable example calls, and `available_for_Z` overview (`projectiles`/`quantities`/`A_values`) when available.
+Cross-section responses include explicit context fields: `energy_unit="eV"`, `cross_section_unit="b"`, `jendl5_xs_version`.
 
 ## Environment Variables
 

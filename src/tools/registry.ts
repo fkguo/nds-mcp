@@ -13,11 +13,17 @@ import { ensureJendl5Db, getJendl5DbStatus } from '../db/jendl5Db.js';
 import { ensureExforDb, getExforDbStatus } from '../db/exforDb.js';
 import { ensureDdepDb, getDdepDbStatus } from '../db/ddepDb.js';
 import { queryRadiationSpectrum } from '../db/jendl5RadiationSpec.js';
-import { interpolateCrossSection, queryCrossSectionTable } from '../db/jendl5CrossSection.js';
+import {
+  getReactionInfo,
+  interpolateCrossSection,
+  listAvailableTargetsByZ,
+  queryCrossSectionTable,
+} from '../db/jendl5CrossSection.js';
 import { getExforEntry, searchExfor } from '../db/exfor.js';
 import { queryDdepDecay } from '../db/ddep.js';
 import { getCodataConstant, listCodataConstants } from '../db/codata.js';
 import { invalidParams, notFound, sqlite3JsonQuery } from '../shared/index.js';
+import { checkNpmUpdate, runNpmSelfUpdate } from '../selfUpdate.js';
 import {
   NDS_FIND_NUCLIDE,
   NDS_GET_MASS,
@@ -27,11 +33,15 @@ import {
   NDS_GET_CHARGE_RADIUS,
   NDS_SEARCH,
   NDS_INFO,
+  NDS_CHECK_UPDATE,
+  NDS_SELF_UPDATE,
   NDS_QUERY_LEVELS,
   NDS_QUERY_GAMMAS,
   NDS_QUERY_DECAY_FEEDINGS,
   NDS_LOOKUP_REFERENCE,
   NDS_GET_RADIATION_SPECTRUM,
+  NDS_LIST_AVAILABLE_TARGETS,
+  NDS_GET_REACTION_INFO,
   NDS_GET_CROSS_SECTION_TABLE,
   NDS_INTERPOLATE_CROSS_SECTION,
   NDS_SEARCH_EXFOR,
@@ -85,6 +95,11 @@ function resolveElement(element: string): number | undefined {
 // ── Tool Schemas ──────────────────────────────────────────────────────────
 
 const NdsInfoSchema = z.object({});
+const NdsCheckUpdateSchema = z.object({});
+const NdsSelfUpdateSchema = z.object({
+  confirm: z.boolean().default(false).describe('Must be true to execute npm self-update.'),
+  target: z.string().optional().default('latest').describe('npm dist-tag or version, e.g. "latest" or "0.3.1".'),
+});
 
 const NdsFindNuclideSchema = z.object({
   element: z.string().min(1).optional().describe('Element symbol (e.g. "He", "U", "Pb")'),
@@ -190,6 +205,19 @@ const NdsGetRadiationSpectrumSchema = z.object({
   { message: 'energy_min_keV must be <= energy_max_keV' },
 );
 
+const NdsListAvailableTargetsSchema = z.object({
+  Z: z.number().int().min(0).describe('Atomic number'),
+  projectile: z.enum(['n', 'p']).optional().default('n'),
+});
+
+const NdsGetReactionInfoSchema = z.object({
+  Z: z.number().int().min(0).describe('Atomic number'),
+  A: z.number().int().min(1).describe('Mass number'),
+  state: z.number().int().min(0).optional().default(0).describe('Target isomeric state'),
+  projectile: z.enum(['n', 'p']).optional().default('n'),
+  reaction: z.string().optional().describe('Optional reaction string to check for common naming aliases (no automatic rewrite)'),
+});
+
 const NdsGetCrossSectionTableSchema = z.object({
   Z: z.number().int().min(0).describe('Atomic number'),
   A: z.number().int().min(1).describe('Mass number'),
@@ -220,6 +248,8 @@ const NdsInterpolateCrossSectionSchema = z.object({
   mt: z.number().int().positive().optional(),
   reaction: z.string().optional(),
   energy_eV: z.number().positive().describe('Incident energy (eV)'),
+  on_out_of_range: z.enum(['error', 'clamp']).optional().default('error')
+    .describe('How to handle energy outside tabulated range: error (default) or clamp to nearest boundary'),
 }).refine(
   p => p.mt !== undefined || p.reaction !== undefined,
   { message: 'At least one of mt or reaction must be provided' },
@@ -237,19 +267,7 @@ const NdsSearchExforSchema = z.object({
   kT_min_keV: z.number().positive().optional(),
   kT_max_keV: z.number().positive().optional(),
   limit: z.number().int().min(1).max(200).optional().default(20),
-}).refine(
-  p => !(p.quantity === 'MACS' && (p.e_min_eV !== undefined || p.e_max_eV !== undefined)),
-  { message: 'For MACS quantity, use kT_min_keV/kT_max_keV, not e_min_eV/e_max_eV' },
-).refine(
-  p => p.quantity === 'MACS' || (p.kT_min_keV === undefined && p.kT_max_keV === undefined),
-  { message: 'kT_min_keV/kT_max_keV are only valid when quantity=MACS' },
-).refine(
-  p => p.e_min_eV === undefined || p.e_max_eV === undefined || p.e_min_eV <= p.e_max_eV,
-  { message: 'e_min_eV must be <= e_max_eV' },
-).refine(
-  p => p.kT_min_keV === undefined || p.kT_max_keV === undefined || p.kT_min_keV <= p.kT_max_keV,
-  { message: 'kT_min_keV must be <= kT_max_keV' },
-);
+});
 
 const NdsGetExforEntrySchema = z.object({
   entry_id: z.string().min(1).describe('EXFOR entry number'),
@@ -341,6 +359,36 @@ export const TOOL_SPECS: ToolSpec[] = [
           ? await loadKeyValueMeta(ddepDb.path, 'ddep_meta')
           : null,
         codata_meta: await loadKeyValueMeta(mainDb.path, 'codata_meta'),
+      };
+    },
+  },
+  {
+    name: NDS_CHECK_UPDATE,
+    description: 'Check npm registry for newer nds-mcp version. Does not perform updates.',
+    exposure: 'standard',
+    zodSchema: NdsCheckUpdateSchema,
+    handler: async () => {
+      return await checkNpmUpdate();
+    },
+  },
+  {
+    name: NDS_SELF_UPDATE,
+    description: 'Update nds-mcp from npm (explicit opt-in). Requires confirm=true and may need system permissions.',
+    exposure: 'full',
+    zodSchema: NdsSelfUpdateSchema,
+    handler: async (params) => {
+      if (!params.confirm) {
+        throw invalidParams('Self-update requires confirm=true', {
+          how_to: 'Call nds_self_update with {"confirm": true, "target": "latest"}',
+        });
+      }
+      const result = runNpmSelfUpdate({
+        confirm: params.confirm,
+        target: params.target,
+      });
+      return {
+        ...result,
+        note: 'Restart MCP clients after updating to load the new version.',
       };
     },
   },
@@ -526,6 +574,34 @@ export const TOOL_SPECS: ToolSpec[] = [
       const result = await queryRadiationSpectrum(dbPath, params);
       if (!result) {
         throw notFound(`No JENDL-5 decay spectrum for Z=${params.Z}, A=${params.A}, state=${params.state}`);
+      }
+      return result;
+    },
+  },
+  {
+    name: NDS_LIST_AVAILABLE_TARGETS,
+    description: 'List available JENDL-5 XS targets (A/state) for a given Z and projectile.',
+    exposure: 'standard',
+    zodSchema: NdsListAvailableTargetsSchema,
+    handler: async (params) => {
+      const dbPath = await ensureJendl5Db();
+      const result = await listAvailableTargetsByZ(dbPath, params);
+      if (!Array.isArray((result as { targets?: unknown }).targets) || (result as { targets: unknown[] }).targets.length === 0) {
+        throw notFound(`No JENDL-5 XS targets for Z=${params.Z}, projectile=${params.projectile}`);
+      }
+      return result;
+    },
+  },
+  {
+    name: NDS_GET_REACTION_INFO,
+    description: 'Return available JENDL-5 reaction channels for a target: mt, reaction, e_min_eV, e_max_eV, n_points.',
+    exposure: 'standard',
+    zodSchema: NdsGetReactionInfoSchema,
+    handler: async (params) => {
+      const dbPath = await ensureJendl5Db();
+      const result = await getReactionInfo(dbPath, params);
+      if (!result) {
+        throw notFound(`No JENDL-5 reaction channels for Z=${params.Z}, A=${params.A}, state=${params.state}, projectile=${params.projectile}`);
       }
       return result;
     },

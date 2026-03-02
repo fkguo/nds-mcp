@@ -47,6 +47,10 @@ INSERT INTO jendl5_xs_points VALUES (5, 2, 1, 1e-5, 0.0);
 INSERT INTO jendl5_xs_points VALUES (6, 2, 2, 1e-3, 1.0);
 INSERT INTO jendl5_xs_points VALUES (7, 2, 3, 1.0, 2.0);
 INSERT INTO jendl5_xs_interp VALUES (3, 2, 3, 5);
+INSERT INTO jendl5_xs_meta VALUES (3, 3, 6, 0, 'n', 105, 'n,t', 1e-5, 1.0, 2);
+INSERT INTO jendl5_xs_points VALUES (8, 3, 1, 1e-5, 0.1);
+INSERT INTO jendl5_xs_points VALUES (9, 3, 2, 1.0, 0.2);
+INSERT INTO jendl5_xs_interp VALUES (4, 3, 2, 2);
 `,
     );
 
@@ -123,7 +127,7 @@ INSERT INTO exfor_points VALUES ('E002', '001', 1, NULL, 30.0, 0.12, 0.005);
     expect(String(data.interpolation_method)).toContain('fallback');
   });
 
-  it('nds_interpolate_cross_section returns INVALID_PARAMS when out of range', async () => {
+  it('nds_interpolate_cross_section returns INVALID_PARAMS when out of range by default', async () => {
     const result = await handleToolCall('nds_interpolate_cross_section', {
       Z: 26, A: 56, state: 0, projectile: 'n', mt: 102, energy_eV: 10,
     });
@@ -133,11 +137,43 @@ INSERT INTO exfor_points VALUES ('E002', '001', 1, NULL, 30.0, 0.12, 0.005);
     expect(String(data.error.message)).toContain('outside tabulated range');
   });
 
+  it('nds_interpolate_cross_section clamps when on_out_of_range=clamp', async () => {
+    const result = await handleToolCall('nds_interpolate_cross_section', {
+      Z: 26,
+      A: 56,
+      state: 0,
+      projectile: 'n',
+      mt: 102,
+      energy_eV: 10,
+      on_out_of_range: 'clamp',
+    });
+    expect(result.isError).toBeUndefined();
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.clamped).toBe(true);
+    expect(data.requested_energy_eV).toBe(10);
+    expect(data.effective_energy_eV).toBe(1);
+    expect(data.tabulated_e_min_eV).toBe(1e-5);
+    expect(data.tabulated_e_max_eV).toBe(1);
+    expect(data.energy_eV).toBe(1);
+  });
+
   it('nds_search_exfor enforces MACS parameter semantics', async () => {
     const bad = await handleToolCall('nds_search_exfor', {
       Z: 26, A: 56, quantity: 'MACS', e_min_eV: 1,
     });
     expect(bad.isError).toBe(true);
+    const badPayload = JSON.parse(bad.content[0]!.text);
+    expect(badPayload.error.code).toBe('INVALID_PARAMS');
+    expect(Array.isArray(badPayload.error.data?.parameter_rules)).toBe(true);
+    expect(Array.isArray(badPayload.error.data?.example_calls)).toBe(true);
+    expect(badPayload.error.data.example_calls.length).toBeGreaterThanOrEqual(2);
+    expect(Array.isArray(badPayload.error.data?.available_for_Z?.projectiles)).toBe(true);
+    expect(Array.isArray(badPayload.error.data?.available_for_Z?.quantities)).toBe(true);
+    expect(Array.isArray(badPayload.error.data?.available_for_Z?.A_values)).toBe(true);
+    expect(badPayload.error.data.available_for_Z.projectiles).toContain('n');
+    expect(badPayload.error.data.available_for_Z.quantities).toContain('SIG');
+    expect(badPayload.error.data.available_for_Z.quantities).toContain('MACS');
+    expect(badPayload.error.data.available_for_Z.A_values).toContain(56);
 
     const good = await handleToolCall('nds_search_exfor', {
       Z: 26, A: 56, quantity: 'MACS', kT_min_keV: 10, kT_max_keV: 40,
@@ -155,5 +191,23 @@ INSERT INTO exfor_points VALUES ('E002', '001', 1, NULL, 30.0, 0.12, 0.005);
     expect(data.entry_id).toBe('E001');
     expect(data.entries.length).toBe(1);
     expect(data.points.length).toBe(1);
+  });
+
+  it('nds_get_reaction_info returns available reactions', async () => {
+    const result = await handleToolCall('nds_get_reaction_info', { Z: 26, A: 56 });
+    expect(result.isError).toBeUndefined();
+    const data = JSON.parse(result.content[0]!.text);
+    expect(Array.isArray(data.reactions)).toBe(true);
+    expect(data.reactions.length).toBeGreaterThanOrEqual(2);
+    expect(data.reactions.some((row: any) => row.mt === 102 && row.reaction === 'n,gamma')).toBe(true);
+    expect(data.reactions.some((row: any) => row.mt === 103 && row.reaction === 'n,p')).toBe(true);
+  });
+
+  it('nds_get_reaction_info provides suggestion for common reaction alias', async () => {
+    const result = await handleToolCall('nds_get_reaction_info', { Z: 3, A: 6, reaction: 'n,a' });
+    expect(result.isError).toBeUndefined();
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.suggested_reaction).toBe('n,t');
+    expect(String(data.suggestion_reason)).toContain('Li-6');
   });
 });

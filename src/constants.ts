@@ -6,11 +6,15 @@ export const NDS_GET_DECAY = 'nds_get_decay' as const;
 export const NDS_GET_CHARGE_RADIUS = 'nds_get_charge_radius' as const;
 export const NDS_SEARCH = 'nds_search' as const;
 export const NDS_INFO = 'nds_info' as const;
+export const NDS_CHECK_UPDATE = 'nds_check_update' as const;
+export const NDS_SELF_UPDATE = 'nds_self_update' as const;
 export const NDS_QUERY_LEVELS = 'nds_query_levels' as const;
 export const NDS_QUERY_GAMMAS = 'nds_query_gammas' as const;
 export const NDS_QUERY_DECAY_FEEDINGS = 'nds_query_decay_feedings' as const;
 export const NDS_LOOKUP_REFERENCE = 'nds_lookup_reference' as const;
 export const NDS_GET_RADIATION_SPECTRUM = 'nds_get_radiation_spectrum' as const;
+export const NDS_LIST_AVAILABLE_TARGETS = 'nds_list_available_targets' as const;
+export const NDS_GET_REACTION_INFO = 'nds_get_reaction_info' as const;
 export const NDS_GET_CROSS_SECTION_TABLE = 'nds_get_cross_section_table' as const;
 export const NDS_INTERPOLATE_CROSS_SECTION = 'nds_interpolate_cross_section' as const;
 export const NDS_SEARCH_EXFOR = 'nds_search_exfor' as const;
@@ -28,11 +32,15 @@ export type NdsToolName =
   | typeof NDS_GET_CHARGE_RADIUS
   | typeof NDS_SEARCH
   | typeof NDS_INFO
+  | typeof NDS_CHECK_UPDATE
+  | typeof NDS_SELF_UPDATE
   | typeof NDS_QUERY_LEVELS
   | typeof NDS_QUERY_GAMMAS
   | typeof NDS_QUERY_DECAY_FEEDINGS
   | typeof NDS_LOOKUP_REFERENCE
   | typeof NDS_GET_RADIATION_SPECTRUM
+  | typeof NDS_LIST_AVAILABLE_TARGETS
+  | typeof NDS_GET_REACTION_INFO
   | typeof NDS_GET_CROSS_SECTION_TABLE
   | typeof NDS_INTERPOLATE_CROSS_SECTION
   | typeof NDS_SEARCH_EXFOR
