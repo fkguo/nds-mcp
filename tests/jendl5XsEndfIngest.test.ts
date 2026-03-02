@@ -70,6 +70,19 @@ function buildNaturalCarbonEndf(): string {
   return `${lines.join('\n')}\n`;
 }
 
+function buildLi6NtEndf(): string {
+  const mat = 3250;
+  const lines = [
+    endfLine(['3.006000+3', '5.963450+0', '0', '0', '0', '0'], mat, 3, 105, 1),
+    endfLine(['0.000000+0', '0.000000+0', '0', '0', '1', '3'], mat, 3, 105, 2),
+    endfLine(['3', '2'], mat, 3, 105, 3),
+    endfLine(['1.000000-5', '9.000000+2', '1.000000+0', '9.500000+2', '2.000000+7', '1.000000+3'], mat, 3, 105, 4),
+    endfLine([], mat, 3, 0, 99999),
+    endfLine([], mat, 0, 0, 0),
+  ];
+  return `${lines.join('\n')}\n`;
+}
+
 function runSqlScalar(dbPath: string, sql: string): string {
   return execFileSync('sqlite3', [dbPath, sql], { encoding: 'utf-8' }).trim();
 }
@@ -97,8 +110,10 @@ describe('JENDL-5 XS ENDF-6 ingest', () => {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nds-jendl-xs-endf-'));
   const endfPath = path.join(tmpRoot, 'n_082-Pb-208_300K.dat');
   const naturalEndfPath = path.join(tmpRoot, 'n_006-C-0_300K.dat');
+  const li6EndfPath = path.join(tmpRoot, 'n_003-Li-6_300K.dat');
   const jsonPath = path.join(tmpRoot, 'pb208-n-gamma.json');
   const auxTxtPath = path.join(tmpRoot, 'README.txt');
+  const txtOnlyDir = path.join(tmpRoot, 'txt-only');
   const gzPath = path.join(tmpRoot, 'n_082-Pb-208_300K.dat.gz');
   const tarPath = path.join(tmpRoot, 'jendl5-n-300K-mini.tar.gz');
   const jendlDb = path.join(tmpRoot, 'jendl5.sqlite');
@@ -106,6 +121,7 @@ describe('JENDL-5 XS ENDF-6 ingest', () => {
   beforeAll(() => {
     fs.writeFileSync(endfPath, buildPb208Endf(), 'utf-8');
     fs.writeFileSync(naturalEndfPath, buildNaturalCarbonEndf(), 'utf-8');
+    fs.writeFileSync(li6EndfPath, buildLi6NtEndf(), 'utf-8');
     fs.writeFileSync(jsonPath, JSON.stringify({
       Z: 82,
       A: 208,
@@ -122,6 +138,8 @@ describe('JENDL-5 XS ENDF-6 ingest', () => {
       interp: [{ nbt: 2, int_law: 2 }],
     }, null, 2), 'utf-8');
     fs.writeFileSync(auxTxtPath, 'This is not ENDF data.', 'utf-8');
+    fs.mkdirSync(txtOnlyDir, { recursive: true });
+    fs.writeFileSync(path.join(txtOnlyDir, 'README.txt'), 'No ENDF sections here.', 'utf-8');
     fs.writeFileSync(gzPath, zlib.gzipSync(fs.readFileSync(endfPath)));
     execFileSync('tar', ['-czf', tarPath, '-C', tmpRoot, path.basename(gzPath), path.basename(auxTxtPath)]);
   });
@@ -181,6 +199,12 @@ describe('JENDL-5 XS ENDF-6 ingest', () => {
     expect(pbCaptureRows).toBe(1);
   });
 
+  it('fails fast when source contains no usable XS records', async () => {
+    await expect(ingestJendl5Xs(jendlDb, txtOnlyDir, '300K'))
+      .rejects
+      .toThrow(/No XS records were ingested/);
+  });
+
   it('nds_info includes required jendl5_meta keys after XS ingest', async () => {
     await ingestJendl5Xs(jendlDb, tarPath, '300K');
     process.env.NDS_DB_PATH = MAIN_FIXTURE_DB;
@@ -207,6 +231,9 @@ describe('JENDL-5 XS ENDF-6 ingest', () => {
     expect(table.isError).toBeUndefined();
     const tableData = JSON.parse(table.content[0]!.text);
     expect(tableData.reaction).toBe('n,gamma');
+    expect(tableData.energy_unit).toBe('eV');
+    expect(tableData.cross_section_unit).toBe('b');
+    expect(tableData.jendl5_xs_version).toBe('300K');
     expect(tableData.points.length).toBe(4);
 
     const interpolated = await handleToolCall('nds_interpolate_cross_section', {
@@ -215,6 +242,9 @@ describe('JENDL-5 XS ENDF-6 ingest', () => {
     expect(interpolated.isError).toBeUndefined();
     const interpolationData = JSON.parse(interpolated.content[0]!.text);
     expect(interpolationData.reaction).toBe('n,gamma');
+    expect(interpolationData.energy_unit).toBe('eV');
+    expect(interpolationData.cross_section_unit).toBe('b');
+    expect(interpolationData.jendl5_xs_version).toBe('300K');
     expect(interpolationData.sigma_b).toBeGreaterThan(0);
   });
 
@@ -252,6 +282,22 @@ describe('JENDL-5 XS ENDF-6 ingest', () => {
     expect(payload.error.data.tabulated_e_max_eV).toBe(2e7);
   });
 
+  it('distinguishes target mismatch as INVALID_PARAMS with available A/state combinations', async () => {
+    await ingestJendl5Xs(jendlDb, tarPath, '300K');
+    process.env.NDS_DB_PATH = MAIN_FIXTURE_DB;
+    process.env.NDS_JENDL5_DB_PATH = jendlDb;
+
+    const miss = await handleToolCall('nds_get_cross_section_table', {
+      Z: 82, A: 209, state: 0, projectile: 'n', mt: 102, mode: 'raw', limit: 10, offset: 0,
+    });
+    expect(miss.isError).toBe(true);
+    const payload = JSON.parse(miss.content[0]!.text);
+    expect(payload.error.code).toBe('INVALID_PARAMS');
+    expect(Array.isArray(payload.error.data.available_targets)).toBe(true);
+    expect(payload.error.data.available_targets.some((t: { A: number; state: number }) => t.A === 208 && t.state === 0)).toBe(true);
+    expect(String(payload.error.data.how_to_explore)).toContain('nds_list_available_targets');
+  });
+
   it('returns INVALID_PARAMS with available MT list when requested reaction is missing', async () => {
     await ingestJendl5Xs(jendlDb, tarPath, '300K');
     process.env.NDS_DB_PATH = MAIN_FIXTURE_DB;
@@ -268,6 +314,21 @@ describe('JENDL-5 XS ENDF-6 ingest', () => {
     expect(payload.error.data.available_mts).toContain(102);
   });
 
+  it('returns Li-6 reaction alias suggestion for n,a -> n,t', async () => {
+    await ingestJendl5Xs(jendlDb, li6EndfPath, '300K');
+    process.env.NDS_DB_PATH = MAIN_FIXTURE_DB;
+    process.env.NDS_JENDL5_DB_PATH = jendlDb;
+
+    const miss = await handleToolCall('nds_get_cross_section_table', {
+      Z: 3, A: 6, state: 0, projectile: 'n', reaction: 'n,a', mode: 'raw', limit: 10, offset: 0,
+    });
+    expect(miss.isError).toBe(true);
+    const payload = JSON.parse(miss.content[0]!.text);
+    expect(payload.error.code).toBe('INVALID_PARAMS');
+    expect(payload.error.data.suggested_reaction).toBe('n,t');
+    expect(String(payload.error.data.suggestion_reason)).toContain('MT=105');
+  });
+
   it('returns INVALID_PARAMS when interpolation energy is outside tabulated range', async () => {
     await ingestJendl5Xs(jendlDb, tarPath, '300K');
     process.env.NDS_DB_PATH = MAIN_FIXTURE_DB;
@@ -282,5 +343,22 @@ describe('JENDL-5 XS ENDF-6 ingest', () => {
     expect(payload.error.data.requested_energy_eV).toBe(1e-8);
     expect(payload.error.data.tabulated_e_min_eV).toBe(1e-5);
     expect(payload.error.data.tabulated_e_max_eV).toBe(2e7);
+  });
+
+  it('lists available targets for a given Z/projectile', async () => {
+    await ingestJendl5Xs(jendlDb, tarPath, '300K');
+    process.env.NDS_DB_PATH = MAIN_FIXTURE_DB;
+    process.env.NDS_JENDL5_DB_PATH = jendlDb;
+
+    const result = await handleToolCall('nds_list_available_targets', {
+      Z: 82,
+      projectile: 'n',
+    });
+    expect(result.isError).toBeUndefined();
+    const data = JSON.parse(result.content[0]!.text);
+    expect(data.Z).toBe(82);
+    expect(data.projectile).toBe('n');
+    expect(Array.isArray(data.targets)).toBe(true);
+    expect(data.targets.some((t: { A: number; state: number }) => t.A === 208 && t.state === 0)).toBe(true);
   });
 });

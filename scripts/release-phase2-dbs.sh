@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Upload prebuilt optional SQLite databases (jendl5.sqlite / exfor.sqlite / ddep.sqlite) to a GitHub Release.
+# Upload prebuilt optional SQLite databases as gzip assets
+# (jendl5.sqlite.gz / exfor.sqlite.gz / ddep.sqlite.gz) to a GitHub Release.
 #
 # Usage:
 #   ./scripts/release-phase2-dbs.sh --tag v0.1.1 \
@@ -52,25 +53,25 @@ sha256_file() {
 }
 
 note_lines=()
-note_lines+=("Optional database assets.")
+note_lines+=("Optional database assets (gzip).")
 
 if [[ -n "$JENDL5_DB" ]]; then
   [[ -f "$JENDL5_DB" ]] || { echo "jendl5 DB not found: $JENDL5_DB" >&2; exit 1; }
   note_lines+=("")
-  note_lines+=("- jendl5.sqlite")
-  note_lines+=("  - sha256: \`$(sha256_file "$JENDL5_DB")\`")
+  note_lines+=("- jendl5.sqlite.gz")
+  note_lines+=("  - raw sqlite sha256: \`$(sha256_file "$JENDL5_DB")\`")
 fi
 if [[ -n "$EXFOR_DB" ]]; then
   [[ -f "$EXFOR_DB" ]] || { echo "exfor DB not found: $EXFOR_DB" >&2; exit 1; }
   note_lines+=("")
-  note_lines+=("- exfor.sqlite")
-  note_lines+=("  - sha256: \`$(sha256_file "$EXFOR_DB")\`")
+  note_lines+=("- exfor.sqlite.gz")
+  note_lines+=("  - raw sqlite sha256: \`$(sha256_file "$EXFOR_DB")\`")
 fi
 if [[ -n "$DDEP_DB" ]]; then
   [[ -f "$DDEP_DB" ]] || { echo "ddep DB not found: $DDEP_DB" >&2; exit 1; }
   note_lines+=("")
-  note_lines+=("- ddep.sqlite")
-  note_lines+=("  - sha256: \`$(sha256_file "$DDEP_DB")\`")
+  note_lines+=("- ddep.sqlite.gz")
+  note_lines+=("  - raw sqlite sha256: \`$(sha256_file "$DDEP_DB")\`")
 fi
 
 notes="$(printf "%s\n" "${note_lines[@]}")"
@@ -82,18 +83,30 @@ if ! gh release view "$TAG" --repo "$REPO" &>/dev/null; then
     --notes "$notes"
 fi
 
+compress_sqlite() {
+  local src="$1"
+  local out="$2"
+  gzip -c -1 "$src" > "$out"
+}
+
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
 if [[ -n "$JENDL5_DB" ]]; then
-  gh release upload "$TAG" "$JENDL5_DB#jendl5.sqlite" --repo "$REPO" --clobber
+  compress_sqlite "$JENDL5_DB" "$TMP_DIR/jendl5.sqlite.gz"
+  gh release upload "$TAG" "$TMP_DIR/jendl5.sqlite.gz#jendl5.sqlite.gz" --repo "$REPO" --clobber
 fi
 if [[ -n "$EXFOR_DB" ]]; then
-  gh release upload "$TAG" "$EXFOR_DB#exfor.sqlite" --repo "$REPO" --clobber
+  compress_sqlite "$EXFOR_DB" "$TMP_DIR/exfor.sqlite.gz"
+  gh release upload "$TAG" "$TMP_DIR/exfor.sqlite.gz#exfor.sqlite.gz" --repo "$REPO" --clobber
 fi
 if [[ -n "$DDEP_DB" ]]; then
-  gh release upload "$TAG" "$DDEP_DB#ddep.sqlite" --repo "$REPO" --clobber
+  compress_sqlite "$DDEP_DB" "$TMP_DIR/ddep.sqlite.gz"
+  gh release upload "$TAG" "$TMP_DIR/ddep.sqlite.gz#ddep.sqlite.gz" --repo "$REPO" --clobber
 fi
 
 echo "Uploaded assets to $REPO@$TAG"
 echo "Latest URLs:"
-echo "  https://github.com/$REPO/releases/latest/download/jendl5.sqlite"
-echo "  https://github.com/$REPO/releases/latest/download/exfor.sqlite"
-echo "  https://github.com/$REPO/releases/latest/download/ddep.sqlite"
+echo "  https://github.com/$REPO/releases/latest/download/jendl5.sqlite.gz"
+echo "  https://github.com/$REPO/releases/latest/download/exfor.sqlite.gz"
+echo "  https://github.com/$REPO/releases/latest/download/ddep.sqlite.gz"

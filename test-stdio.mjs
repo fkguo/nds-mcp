@@ -8,6 +8,7 @@ function main() {
     encoding: 'utf8',
     timeout: 10000,
     maxBuffer: 10 * 1024 * 1024,
+    env: { ...process.env, NDS_SIMPLE_JSONRPC_ONESHOT: '1' },
   });
 
   if (proc.error) {

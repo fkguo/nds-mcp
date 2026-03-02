@@ -15,6 +15,7 @@ import * as path from 'path';
 
 import { getNdsDbPathFromEnv, NDS_DB_PATH_ENV } from './ndsDb.js';
 import { downloadFile } from './download.js';
+import { validateSqliteFile } from './sqliteFileValidation.js';
 
 export { hasCurl } from './download.js';
 
@@ -23,7 +24,7 @@ const DEFAULT_DB_PATH = path.join(DEFAULT_DATA_DIR, 'nds.sqlite');
 
 const DOWNLOAD_URL_ENV = 'NDS_DB_DOWNLOAD_URL';
 const DEFAULT_DOWNLOAD_URL =
-  'https://github.com/fkguo/nds-mcp/releases/latest/download/nds.sqlite';
+  'https://github.com/fkguo/nds-mcp/releases/latest/download/nds.sqlite.gz';
 
 /**
  * Ensure the NDS SQLite database is available, downloading it if necessary.
@@ -36,6 +37,7 @@ export async function ensureNdsDb(): Promise<string> {
   try {
     const explicit = getNdsDbPathFromEnv();
     if (explicit) {
+      await validateSqliteFile(explicit);
       return explicit;
     }
   } catch {
@@ -51,11 +53,14 @@ export async function ensureNdsDb(): Promise<string> {
 
   // 2. Default path exists and non-empty → use cached copy
   if (fs.existsSync(DEFAULT_DB_PATH)) {
-    const stat = fs.statSync(DEFAULT_DB_PATH);
-    if (stat.isFile() && stat.size > 0) {
+    try {
+      await validateSqliteFile(DEFAULT_DB_PATH);
       process.env[NDS_DB_PATH_ENV] = DEFAULT_DB_PATH;
       console.error(`[nds-mcp] Using cached database: ${DEFAULT_DB_PATH}`);
       return DEFAULT_DB_PATH;
+    } catch (err) {
+      console.error('[nds-mcp] Cached database validation failed, re-downloading:',
+        err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -67,12 +72,8 @@ export async function ensureNdsDb(): Promise<string> {
 
   try {
     await downloadFile(url, tmpPath, 'main DB');
-
-    // Validate: downloaded file must be non-empty
+    await validateSqliteFile(tmpPath);
     const stat = fs.statSync(tmpPath);
-    if (stat.size === 0) {
-      throw new Error('Downloaded file is empty');
-    }
 
     // Atomic rename into place
     fs.renameSync(tmpPath, DEFAULT_DB_PATH);

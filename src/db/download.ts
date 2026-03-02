@@ -3,6 +3,7 @@ import * as https from 'https';
 import * as http from 'http';
 import { execFileSync } from 'child_process';
 import { pipeline } from 'stream/promises';
+import { createGunzip } from 'zlib';
 
 /** Check if curl is available on the system. */
 export function hasCurl(): boolean {
@@ -74,6 +75,39 @@ async function downloadWithNodeHttps(url: string, destPath: string, label: strin
   }
 }
 
+function isGzipFile(filePath: string): boolean {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const magic = Buffer.alloc(2);
+    const bytes = fs.readSync(fd, magic, 0, 2, 0);
+    return bytes === 2 && magic[0] === 0x1f && magic[1] === 0x8b;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/**
+ * Auto-decompress downloaded gzip assets in-place.
+ * This allows release assets to be published as *.sqlite.gz while local cache remains *.sqlite.
+ */
+async function maybeDecompressGzip(url: string, destPath: string, label: string): Promise<void> {
+  const expectGzipByUrl = url.toLowerCase().endsWith('.gz');
+  const expectGzipByMagic = isGzipFile(destPath);
+  if (!expectGzipByUrl && !expectGzipByMagic) return;
+
+  const unpackedPath = `${destPath}.gunzip.${process.pid}`;
+  try {
+    console.error(`[nds-mcp] Decompressing ${label} gzip asset...`);
+    const input = fs.createReadStream(destPath);
+    const output = fs.createWriteStream(unpackedPath);
+    await pipeline(input, createGunzip(), output);
+    fs.renameSync(unpackedPath, destPath);
+  } catch (err) {
+    try { fs.unlinkSync(unpackedPath); } catch { /* ignore */ }
+    throw new Error(`Failed to gunzip downloaded ${label}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 export async function downloadFile(
   url: string,
   destPath: string,
@@ -83,7 +117,9 @@ export async function downloadFile(
   const timeoutMs = options?.timeoutMs ?? 10 * 60 * 1000;
   if (hasCurl()) {
     downloadWithCurl(url, destPath, label, timeoutMs);
+    await maybeDecompressGzip(url, destPath, label);
     return;
   }
   await downloadWithNodeHttps(url, destPath, label, timeoutMs);
+  await maybeDecompressGzip(url, destPath, label);
 }

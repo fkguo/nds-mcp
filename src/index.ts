@@ -44,6 +44,8 @@ interface SimpleJsonRpcRequest {
   params?: Record<string, unknown>;
 }
 
+const SIMPLE_JSONRPC_ONESHOT_ENV = 'NDS_SIMPLE_JSONRPC_ONESHOT';
+
 function simpleJsonRpcResult(
   id: string | number | null | undefined,
   result: unknown,
@@ -93,6 +95,8 @@ async function handleSimpleJsonRpcRequest(request: SimpleJsonRpcRequest): Promis
 }
 
 async function maybeServeSimpleJsonRpcOnce(): Promise<boolean> {
+  // Opt-in only: auto-detecting on any stdin JSON can steal real MCP traffic.
+  if (process.env[SIMPLE_JSONRPC_ONESHOT_ENV] !== '1') return false;
   if (process.stdin.isTTY) return false;
 
   const firstChunk = await new Promise<Buffer | null>((resolve) => {

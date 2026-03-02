@@ -4,12 +4,13 @@ import * as path from 'path';
 import { invalidParams } from '../shared/index.js';
 import { describeOptionalDb, resolveOptionalDbPath, resolvePathFromEnv, type OptionalDbStatus } from './dbPathCommon.js';
 import { downloadFile } from './download.js';
+import { validateSqliteFile } from './sqliteFileValidation.js';
 
 export const NDS_DDEP_DB_PATH_ENV = 'NDS_DDEP_DB_PATH';
 export const NDS_DDEP_DB_DOWNLOAD_URL_ENV = 'NDS_DDEP_DB_DOWNLOAD_URL';
 export const DEFAULT_DDEP_DB_PATH = path.join(os.homedir(), '.nds-mcp', 'ddep.sqlite');
 export const DEFAULT_DDEP_DB_DOWNLOAD_URL =
-  'https://github.com/fkguo/nds-mcp/releases/latest/download/ddep.sqlite';
+  'https://github.com/fkguo/nds-mcp/releases/latest/download/ddep.sqlite.gz';
 const DDEP_HOW_TO = 'Auto-download on first use, or run: nds-mcp ingest --ddep';
 
 export function getDdepDbPathFromEnv(): string | undefined {
@@ -35,7 +36,10 @@ export function getDdepDbStatus(): OptionalDbStatus {
 export async function ensureDdepDb(): Promise<string> {
   try {
     const explicit = getDdepDbPathFromEnv();
-    if (explicit) return explicit;
+    if (explicit) {
+      await validateSqliteFile(explicit);
+      return explicit;
+    }
   } catch {
     if (process.env[NDS_DDEP_DB_PATH_ENV]) {
       throw new Error(
@@ -46,10 +50,13 @@ export async function ensureDdepDb(): Promise<string> {
   }
 
   if (fs.existsSync(DEFAULT_DDEP_DB_PATH)) {
-    const stat = fs.statSync(DEFAULT_DDEP_DB_PATH);
-    if (stat.isFile() && stat.size > 0) {
+    try {
+      await validateSqliteFile(DEFAULT_DDEP_DB_PATH);
       process.env[NDS_DDEP_DB_PATH_ENV] = DEFAULT_DDEP_DB_PATH;
       return DEFAULT_DDEP_DB_PATH;
+    } catch (err) {
+      console.error('[nds-mcp] Cached DDEP DB validation failed, re-downloading:',
+        err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -59,8 +66,7 @@ export async function ensureDdepDb(): Promise<string> {
 
   try {
     await downloadFile(url, tmpPath, 'DDEP DB', { timeoutMs: 30 * 60 * 1000 });
-    const stat = fs.statSync(tmpPath);
-    if (stat.size === 0) throw new Error('Downloaded file is empty');
+    await validateSqliteFile(tmpPath);
     fs.renameSync(tmpPath, DEFAULT_DDEP_DB_PATH);
     process.env[NDS_DDEP_DB_PATH_ENV] = DEFAULT_DDEP_DB_PATH;
     return DEFAULT_DDEP_DB_PATH;

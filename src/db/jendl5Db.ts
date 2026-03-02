@@ -4,12 +4,13 @@ import * as path from 'path';
 import { invalidParams } from '../shared/index.js';
 import { describeOptionalDb, resolveOptionalDbPath, resolvePathFromEnv, type OptionalDbStatus } from './dbPathCommon.js';
 import { downloadFile } from './download.js';
+import { validateSqliteFile } from './sqliteFileValidation.js';
 
 export const NDS_JENDL5_DB_PATH_ENV = 'NDS_JENDL5_DB_PATH';
 export const NDS_JENDL5_DB_DOWNLOAD_URL_ENV = 'NDS_JENDL5_DB_DOWNLOAD_URL';
 export const DEFAULT_JENDL5_DB_PATH = path.join(os.homedir(), '.nds-mcp', 'jendl5.sqlite');
 export const DEFAULT_JENDL5_DB_DOWNLOAD_URL =
-  'https://github.com/fkguo/nds-mcp/releases/latest/download/jendl5.sqlite';
+  'https://github.com/fkguo/nds-mcp/releases/latest/download/jendl5.sqlite.gz';
 const JENDL5_HOW_TO = 'Auto-download on first use, or run: nds-mcp ingest --jendl5-dec';
 
 export function getJendl5DbPathFromEnv(): string | undefined {
@@ -36,7 +37,10 @@ export async function ensureJendl5Db(): Promise<string> {
   // 1) Explicit env var already set and valid → use it
   try {
     const explicit = getJendl5DbPathFromEnv();
-    if (explicit) return explicit;
+    if (explicit) {
+      await validateSqliteFile(explicit);
+      return explicit;
+    }
   } catch {
     if (process.env[NDS_JENDL5_DB_PATH_ENV]) {
       throw new Error(
@@ -48,10 +52,13 @@ export async function ensureJendl5Db(): Promise<string> {
 
   // 2) Default path exists and non-empty → use cached copy
   if (fs.existsSync(DEFAULT_JENDL5_DB_PATH)) {
-    const stat = fs.statSync(DEFAULT_JENDL5_DB_PATH);
-    if (stat.isFile() && stat.size > 0) {
+    try {
+      await validateSqliteFile(DEFAULT_JENDL5_DB_PATH);
       process.env[NDS_JENDL5_DB_PATH_ENV] = DEFAULT_JENDL5_DB_PATH;
       return DEFAULT_JENDL5_DB_PATH;
+    } catch (err) {
+      console.error('[nds-mcp] Cached JENDL-5 DB validation failed, re-downloading:',
+        err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -62,8 +69,7 @@ export async function ensureJendl5Db(): Promise<string> {
 
   try {
     await downloadFile(url, tmpPath, 'JENDL-5 DB', { timeoutMs: 30 * 60 * 1000 });
-    const stat = fs.statSync(tmpPath);
-    if (stat.size === 0) throw new Error('Downloaded file is empty');
+    await validateSqliteFile(tmpPath);
     fs.renameSync(tmpPath, DEFAULT_JENDL5_DB_PATH);
     process.env[NDS_JENDL5_DB_PATH_ENV] = DEFAULT_JENDL5_DB_PATH;
     return DEFAULT_JENDL5_DB_PATH;

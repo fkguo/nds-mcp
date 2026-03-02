@@ -111,6 +111,7 @@ TS
 ## 6) Release Upload（可选 DB）
 
 先构建 sqlite 再 release（不可跳过）：
+发布资产统一使用单一压缩格式：`*.sqlite.gz`（由上传脚本自动压缩）。
 
 ```bash
 # 全量可选 DB 校验

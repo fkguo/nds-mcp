@@ -3,6 +3,7 @@ dist/
 raw/
 *.tsbuildinfo
 *.tmp.*
+.tmp/
 
 # OS
 .DS_Store

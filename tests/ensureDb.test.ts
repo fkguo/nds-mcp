@@ -8,6 +8,13 @@ import * as path from 'path';
 import { hasCurl, ensureNdsDb } from '../src/db/ensureDb.js';
 import { NDS_DB_PATH_ENV } from '../src/db/ndsDb.js';
 
+function writeFakeSqlite(filePath: string): void {
+  fs.writeFileSync(filePath, Buffer.concat([
+    Buffer.from('SQLite format 3\0', 'utf8'),
+    Buffer.alloc(64),
+  ]));
+}
+
 describe('ensureDb', () => {
   const originalEnv = { ...process.env };
 
@@ -38,7 +45,7 @@ describe('ensureDb', () => {
       // Create a temporary file to serve as a valid DB
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nds-test-'));
       const fakePath = path.join(tmpDir, 'test.sqlite');
-      fs.writeFileSync(fakePath, 'fake-db-content');
+      writeFakeSqlite(fakePath);
 
       process.env[NDS_DB_PATH_ENV] = fakePath;
 
@@ -87,7 +94,7 @@ describe('ensureDb', () => {
     it('sets NDS_DB_PATH env after resolving to explicit path', async () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nds-test-'));
       const fakePath = path.join(tmpDir, 'test.sqlite');
-      fs.writeFileSync(fakePath, 'fake-db-content');
+      writeFakeSqlite(fakePath);
 
       process.env[NDS_DB_PATH_ENV] = fakePath;
 
