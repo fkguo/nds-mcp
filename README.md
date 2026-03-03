@@ -15,7 +15,6 @@ By default it downloads from this repo's GitHub Releases (override via `NDS_DB_D
 Release assets use a single compressed format: `*.sqlite.gz` (auto-decompressed after download).
 
 Optional tools `JENDL-5` / `EXFOR` use separate SQLite files and are auto-downloaded on demand.
-`DDEP` decay data is available in `full` mode and also uses a separate optional SQLite file.
 Maintainer ingest support also includes `FENDL-3.2c` and `IRDFF-II` optional SQLite files.
 `CODATA` is bundled inside `nds.sqlite`.
 
@@ -26,11 +25,10 @@ Maintainer ingest support also includes `FENDL-3.2c` and `IRDFF-II` optional SQL
 | `nds.sqlite` | `~/.nds-mcp/nds.sqlite` | Auto-download on server startup *(required)* | AME2020 masses + reaction Q-values; NUBASE2020 nuclear properties; charge radii (IAEA + Li2021 laser spectroscopy); ENSDF (levels, gammas, decay feedings, references); TUNL light-nuclei resonance/level data (A=3–20); CODATA fundamental constants |
 | `jendl5.sqlite` *(optional)* | `~/.nds-mcp/jendl5.sqlite` | Auto-download on first call to JENDL-5 tools | JENDL-5 decay data + radiation spectra; JENDL-5 pointwise cross sections + ENDF-6 interpolation laws |
 | `exfor.sqlite` *(optional)* | `~/.nds-mcp/exfor.sqlite` | Auto-download on first call to EXFOR tools | EXFOR experimental data points (SIG/MACS/...) + per-entry metadata |
-| `ddep.sqlite` *(optional, full mode)* | `~/.nds-mcp/ddep.sqlite` | Auto-download on first call to DDEP tools *(full mode only)* | DDEP radionuclide decay data (source-tagged half-lives + key emission lines) |
 | `fendl32c.sqlite` *(optional, maintainer ingest)* | `~/.nds-mcp/fendl32c.sqlite` | Built via `nds-mcp ingest --fendl` (status visible in `nds_info`) | FENDL-3.2c evaluated ENDF-6 data for transport applications (photo-atomic, neutron, proton, deuteron) + embedded upstream zip archives (raw ENDF retained for MF/MT beyond what is normalized into tables) |
 | `irdff2.sqlite` *(optional, maintainer ingest)* | `~/.nds-mcp/irdff2.sqlite` | Built via `nds-mcp ingest --irdff` (status visible in `nds_info`) | IRDFF-II evaluated ENDF-6 dosimetry neutron data + embedded upstream zip archives (raw ENDF retained for MF/MT beyond what is normalized into tables) |
 
-You can always bring your own files by setting `NDS_DB_PATH` / `NDS_JENDL5_DB_PATH` / `NDS_EXFOR_DB_PATH` / `NDS_DDEP_DB_PATH` / `NDS_FENDL_DB_PATH` / `NDS_IRDFF_DB_PATH`.
+You can always bring your own files by setting `NDS_DB_PATH` / `NDS_JENDL5_DB_PATH` / `NDS_EXFOR_DB_PATH` / `NDS_FENDL_DB_PATH` / `NDS_IRDFF_DB_PATH`.
 
 ## Glossary (Acronyms & Jargon)
 
@@ -42,12 +40,11 @@ You can always bring your own files by setting `NDS_DB_PATH` / `NDS_JENDL5_DB_PA
 - **TUNL**: Triangle Universities Nuclear Laboratory (light nuclei level/resonance tables, A=3–20).
 - **JENDL-5**: Japanese Evaluated Nuclear Data Library v5 (evaluated nuclear data).
 - **EXFOR**: Experimental Nuclear Reaction Data (experimental points + metadata).
-- **DDEP**: Decay Data Evaluation Project (radionuclide decay data evaluation).
 - **FENDL-3.2c**: Fusion Evaluated Nuclear Data Library (transport-focused evaluated ENDF-6 sets).
 - **IRDFF-II**: International Reactor Dosimetry and Fusion File (dosimetry-focused evaluated ENDF-6 sets).
 - **CODATA**: Recommended fundamental constants (Committee on Data for Science and Technology).
 - **ENDF-6**: *Evaluated Nuclear Data File* format (plain-text evaluated nuclear data, organized into sections).
-- **MAT / MF / MT**: ENDF section identifiers: **MAT** (material id), **MF** (“file number”, data category), **MT** (reaction/quantity id). Example: **MF=3** = pointwise cross sections; **MT=102** = (n,γ) capture.
+- **MAT / MF / MT**: ENDF section identifiers: **MAT** (material id), **MF** (“file number”, data category), **MT** (reaction/quantity id). Example: **MF=3** = pointwise cross sections; **MT=1** = total; **MT=2** = elastic; **MT=102** = (n,γ) capture.
 - **XS**: cross section.
 - **BLOB**: SQLite “binary large object” column storing raw bytes. This project embeds some upstream zip archives as BLOBs for completeness; `nds_query` never returns BLOBs and forbids selecting them.
 - **SIG / MACS**: EXFOR quantity codes: **SIG** = cross section; **MACS** = Maxwellian-averaged cross section.
@@ -56,7 +53,6 @@ You can always bring your own files by setting `NDS_DB_PATH` / `NDS_JENDL5_DB_PA
 
 - `jendl5.sqlite` is downloaded when calling `nds_get_radiation_spectrum`, `nds_list_available_targets`, `nds_get_reaction_info`, `nds_get_cross_section_table`, or `nds_interpolate_cross_section`.
 - `exfor.sqlite` is downloaded when calling `nds_search_exfor` or `nds_get_exfor_entry`.
-- `ddep.sqlite` is downloaded when calling `nds_get_ddep_decay` *(requires `NDS_TOOL_MODE=full`)*.
 - These optional SQLite assets are published on this repo's GitHub Releases page (latest release assets).
 - Download URL can point to either plain `.sqlite` or compressed `.sqlite.gz`; server auto-gunzips when needed.
 - For maintainers, `jendl5.sqlite` should include both decay tables and XS tables (`jendl5_xs_meta` / `jendl5_xs_points` / `jendl5_xs_interp`) before release upload.
@@ -175,7 +171,6 @@ The server communicates over stdin/stdout (MCP protocol). Diagnostic messages go
 | JENDL-5 Decay *(optional, `jendl5.sqlite`)* | `jendl5_decays`, `jendl5_decay_modes`, `jendl5_radiation` | Decay data + radiation spectra |
 | JENDL-5 XS *(optional, `jendl5.sqlite`)* | `jendl5_xs_meta`, `jendl5_xs_points`, `jendl5_xs_interp` | Pointwise cross sections + ENDF-6 interpolation laws |
 | EXFOR *(optional, `exfor.sqlite`)* | `exfor_entries`, `exfor_points` | Experimental data points (SIG/MACS/...) |
-| DDEP *(optional, `ddep.sqlite`, full mode)* | `ddep_nuclides`, `ddep_radiation` | Radionuclide decay data: source-tagged half-lives + key emission lines |
 | CODATA 2022 | `codata_constants`, `codata_meta` | Fundamental constants (value/uncertainty/unit, exact/truncated flags) |
 
 ## Masses, Thresholds, and Near-Threshold Resonances (Important)
@@ -195,17 +190,15 @@ The server communicates over stdin/stdout (MCP protocol). Diagnostic messages go
 |------|-------------|
 | `nds_info` | Database metadata: data versions, nuclide counts, file hash, optional DB status, and build/source metadata |
 | `nds_catalog` | Catalog installed libraries and query entrypoints (what exists, where to query, and which tools to use) |
-| `nds_schema` | Inspect SQLite schema for an installed library (tables/columns/foreign keys; indexes optional). `library=ddep` is `full`-only |
+| `nds_schema` | Inspect SQLite schema for an installed library (tables/columns/foreign keys; indexes optional) |
 | `nds_query` | Safe structured table query builder (filter/sort/paginate; no raw SQL). Enforces BLOB exclusion + `*_points` guardrails |
 | `nds_list_raw_archives` | List embedded upstream ENDF-6 zip archive metadata for FENDL/IRDFF (never returns BLOB payloads) |
 | `nds_check_update` | Check npm registry for newer `nds-mcp` version (read-only; no update performed) |
-| `nds_self_update` | Update `nds-mcp` from npm (`confirm=true` required; `full` mode only) |
 | `nds_find_nuclide` | Find nuclides by element, Z, and/or A (NUBASE2020) |
 | `nds_get_mass` | Atomic mass data: mass excess, binding energy/A, atomic mass (AME2020) |
 | `nds_get_separation_energy` | Nucleon separation energies: Sn, Sp, S2n, S2p (AME2020) |
 | `nds_get_q_value` | Reaction Q-values: Qa, Q2bm, Qep, Qbn, etc. (AME2020) |
 | `nds_get_decay` | Decay info: half-life, spin/parity, decay modes (NUBASE2020) |
-| `nds_get_ddep_decay` | DDEP radionuclide decay data: source-tagged half-life values and key emission lines (energy/intensity). `full` mode only |
 | `nds_get_charge_radius` | Nuclear charge radii with cross-source comparison (`mode=best|all|compare`) |
 | `nds_search` | Search nuclides by property range (half-life, mass excess) |
 | `nds_query_levels` | Nuclear energy levels from ENSDF + TUNL (auto-merged for A ≤ 20, with `source` discriminator) |
@@ -350,18 +343,15 @@ so users/agents don't need to memorize MT codes.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NDS_DB_PATH` | `~/.nds-mcp/nds.sqlite` | Database path. Set to skip auto-download. |
-| `NDS_JENDL5_DB_PATH` | `~/.nds-mcp/jendl5.sqlite` | Optional JENDL-5 DB path (Phase 2a/2b tools). |
+| `NDS_JENDL5_DB_PATH` | `~/.nds-mcp/jendl5.sqlite` | Optional JENDL-5 database path (auto-downloaded on first use if unset). |
 | `NDS_JENDL5_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `jendl5.sqlite`. |
-| `NDS_EXFOR_DB_PATH` | `~/.nds-mcp/exfor.sqlite` | Optional EXFOR DB path (Phase 2c tools). |
+| `NDS_EXFOR_DB_PATH` | `~/.nds-mcp/exfor.sqlite` | Optional EXFOR database path (auto-downloaded on first use if unset). |
 | `NDS_EXFOR_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `exfor.sqlite`. |
-| `NDS_DDEP_DB_PATH` | `~/.nds-mcp/ddep.sqlite` | Optional DDEP DB path (`full` mode only tool). |
-| `NDS_DDEP_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `ddep.sqlite`. |
 | `NDS_FENDL_DB_PATH` | `~/.nds-mcp/fendl32c.sqlite` | Optional FENDL-3.2c DB path (maintainer ingest / status in `nds_info`). |
 | `NDS_FENDL_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `fendl32c.sqlite`. |
 | `NDS_IRDFF_DB_PATH` | `~/.nds-mcp/irdff2.sqlite` | Optional IRDFF-II DB path (maintainer ingest / status in `nds_info`). |
 | `NDS_IRDFF_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `irdff2.sqlite`. |
 | `NDS_DB_DOWNLOAD_URL` | GitHub Releases latest | Custom download URL for the SQLite file. |
-| `NDS_TOOL_MODE` | `standard` | Set to `full` to expose all tools. |
 
 ## Building the Database from Source
 

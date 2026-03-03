@@ -1,5 +1,4 @@
 import { invalidParams, sqlite3JsonQuery, sqlStringLiteral } from '../shared/index.js';
-import { ensureDdepDb } from './ddepDb.js';
 import { ensureExforDb } from './exforDb.js';
 import { ensureFendlDb } from './fendlDb.js';
 import { ensureIrdffDb } from './irdffDb.js';
@@ -11,8 +10,7 @@ export type UniversalQueryLibrary =
   | 'jendl5'
   | 'exfor'
   | 'fendl32c'
-  | 'irdff2'
-  | 'ddep';
+  | 'irdff2';
 
 export interface UniversalQueryColumn {
   name: string;
@@ -73,8 +71,6 @@ export async function resolveDbPathForLibrary(library: UniversalQueryLibrary): P
       return await ensureFendlDb();
     case 'irdff2':
       return await ensureIrdffDb();
-    case 'ddep':
-      return await ensureDdepDb();
     default: {
       const _exhaustive: never = library;
       throw invalidParams(`Unknown library: ${String(_exhaustive)}`);

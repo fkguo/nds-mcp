@@ -11,7 +11,7 @@ import { queryDecayFeedings } from '../db/decayFeedings.js';
 import { lookupReference } from '../db/references.js';
 import { ensureJendl5Db, getJendl5DbStatus } from '../db/jendl5Db.js';
 import { ensureExforDb, getExforDbStatus } from '../db/exforDb.js';
-import { ensureDdepDb, getDdepDbStatus } from '../db/ddepDb.js';
+import { ensureDdepDb } from '../db/ddepDb.js';
 import { getFendlDbStatus } from '../db/fendlDb.js';
 import { getIrdffDbStatus } from '../db/irdffDb.js';
 import { queryRadiationSpectrum } from '../db/jendl5RadiationSpec.js';
@@ -82,6 +82,11 @@ export interface ToolSpec<TSchema extends z.ZodType<any, any> = z.ZodType<any, a
 }
 
 export function isToolExposed(spec: ToolSpec, mode: ToolExposureMode): boolean {
+  // DDEP is currently sample-only and not meant for general users. Keep it completely
+  // hidden unless explicitly enabled (maintainer/internal use only).
+  if (spec.name === NDS_GET_DDEP_DECAY) {
+    return mode === 'full' && process.env.NDS_ENABLE_DDEP === '1';
+  }
   return mode === 'full' ? true : spec.exposure === 'standard';
 }
 
@@ -120,10 +125,10 @@ const NdsSelfUpdateSchema = z.object({
 
 const NdsCatalogSchema = z.object({});
 
-const UniversalQueryLibrarySchema = z.enum(['nds', 'jendl5', 'exfor', 'fendl32c', 'irdff2', 'ddep']);
+const UniversalQueryLibrarySchema = z.enum(['nds', 'jendl5', 'exfor', 'fendl32c', 'irdff2']);
 
 const NdsSchemaSchema = z.object({
-  library: UniversalQueryLibrarySchema.describe('Database to inspect: nds|jendl5|exfor|fendl32c|irdff2|ddep (ddep is full-only)'),
+  library: UniversalQueryLibrarySchema.describe('Database to inspect: nds|jendl5|exfor|fendl32c|irdff2'),
   include_indexes: z.boolean().optional().default(false).describe('Include index metadata (name/columns).'),
 });
 
@@ -164,7 +169,7 @@ const NdsQueryWhereSchema = z.object({
 }).optional();
 
 const NdsQuerySchema = z.object({
-  library: UniversalQueryLibrarySchema.describe('Database to query: nds|jendl5|exfor|fendl32c|irdff2|ddep (ddep is full-only)'),
+  library: UniversalQueryLibrarySchema.describe('Database to query: nds|jendl5|exfor|fendl32c|irdff2'),
   table: z.string().min(1).describe('Table or view name (must exist; [A-Za-z0-9_]+ only).'),
   select: z.array(z.string().min(1))
     .optional()
@@ -404,7 +409,6 @@ export const TOOL_SPECS: ToolSpec[] = [
       const irdffDb = getIrdffDbStatus();
       const jendl5Db = getJendl5DbStatus();
       const exforDb = getExforDbStatus();
-      const ddepDb = getDdepDbStatus();
 
       if (mainDb.status !== 'ok' || !mainDb.path) {
         return {
@@ -413,7 +417,6 @@ export const TOOL_SPECS: ToolSpec[] = [
           irdff_db: irdffDb,
           jendl5_db: jendl5Db,
           exfor_db: exforDb,
-          ddep_db: ddepDb,
         };
       }
 
@@ -445,10 +448,6 @@ export const TOOL_SPECS: ToolSpec[] = [
         exfor_meta: exforDb.status === 'ok' && exforDb.path
           ? await loadKeyValueMeta(exforDb.path, 'exfor_meta')
           : null,
-        ddep_db: ddepDb,
-        ddep_meta: ddepDb.status === 'ok' && ddepDb.path
-          ? await loadKeyValueMeta(ddepDb.path, 'ddep_meta')
-          : null,
         codata_meta: await loadKeyValueMeta(mainDb.path, 'codata_meta'),
       };
     },
@@ -464,7 +463,6 @@ export const TOOL_SPECS: ToolSpec[] = [
       const irdffDb = getIrdffDbStatus();
       const jendl5Db = getJendl5DbStatus();
       const exforDb = getExforDbStatus();
-      const ddepDb = getDdepDbStatus();
 
       const libraries: Record<string, unknown> = {
         nds: {
@@ -489,13 +487,6 @@ export const TOOL_SPECS: ToolSpec[] = [
           meta: irdffDb.status === 'ok' && irdffDb.path ? await loadKeyValueMeta(irdffDb.path, 'irdff_meta') : null,
         },
       };
-
-      if (ctx.mode === 'full') {
-        (libraries as Record<string, unknown>).ddep = {
-          ...ddepDb,
-          meta: ddepDb.status === 'ok' && ddepDb.path ? await loadKeyValueMeta(ddepDb.path, 'ddep_meta') : null,
-        };
-      }
 
       const quantitiesBase = [
         {
@@ -679,12 +670,7 @@ export const TOOL_SPECS: ToolSpec[] = [
         },
       ] as const;
 
-      const quantities = ctx.mode === 'full'
-        ? quantitiesBase
-        : quantitiesBase.map((q) => ({
-          ...q,
-          source_libraries: (q.source_libraries as readonly string[]).filter((lib) => lib !== 'ddep'),
-        }));
+      const quantities = quantitiesBase;
 
       return {
         tool_mode: ctx.mode,
@@ -699,14 +685,7 @@ export const TOOL_SPECS: ToolSpec[] = [
     description: 'Inspect SQLite schema for an installed NDS database library (tables/columns/foreign keys, optional indexes).',
     exposure: 'standard',
     zodSchema: NdsSchemaSchema,
-    handler: async (params, ctx) => {
-      if (params.library === 'ddep' && ctx.mode !== 'full') {
-        throw invalidParams('DDEP is internal-only and not visible in standard mode.', {
-          library: params.library,
-          how_to: 'Set NDS_TOOL_MODE=full to enable internal tools and libraries.',
-        });
-      }
-
+    handler: async (params) => {
       const dbPath = await resolveDbPathForLibrary(params.library);
       const tables = await listTables(dbPath);
 
@@ -735,14 +714,7 @@ export const TOOL_SPECS: ToolSpec[] = [
     description: 'Safe structured query builder over SQLite tables (filter/sort/paginate; no raw SQL input).',
     exposure: 'standard',
     zodSchema: NdsQuerySchema,
-    handler: async (params, ctx) => {
-      if (params.library === 'ddep' && ctx.mode !== 'full') {
-        throw invalidParams('DDEP is internal-only and not visible in standard mode.', {
-          library: params.library,
-          how_to: 'Set NDS_TOOL_MODE=full to enable internal tools and libraries.',
-        });
-      }
-
+    handler: async (params) => {
       const MAX_LIMIT = 5000;
 
       assertSafeIdentifier(params.table, 'table');
@@ -1381,7 +1353,7 @@ export function getToolSpec(name: string): ToolSpec | undefined {
 }
 
 export function getToolSpecs(mode: ToolExposureMode = 'standard'): ToolSpec[] {
-  return mode === 'full' ? TOOL_SPECS : TOOL_SPECS.filter(s => s.exposure === 'standard');
+  return TOOL_SPECS.filter(s => isToolExposed(s, mode));
 }
 
 export function getTools(mode: ToolExposureMode = 'standard'): Array<{

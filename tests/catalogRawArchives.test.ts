@@ -69,20 +69,18 @@ INSERT OR REPLACE INTO irdff_raw_archives VALUES ('irdff_n1.zip', 'n', 2, 'ddd',
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it('nds_catalog hides ddep in standard mode', async () => {
+  it('nds_catalog does not expose ddep (standard/full)', async () => {
     const res = await handleToolCall('nds_catalog', {}, 'standard');
     expect(res.isError).toBeUndefined();
     const data = JSON.parse(res.content[0]!.text);
     expect(data.tool_mode).toBe('standard');
     expect(data.libraries.ddep).toBeUndefined();
-  });
 
-  it('nds_catalog includes ddep in full mode', async () => {
-    const res = await handleToolCall('nds_catalog', {}, 'full');
-    expect(res.isError).toBeUndefined();
-    const data = JSON.parse(res.content[0]!.text);
-    expect(data.tool_mode).toBe('full');
-    expect(data.libraries.ddep).toBeDefined();
+    const fullRes = await handleToolCall('nds_catalog', {}, 'full');
+    expect(fullRes.isError).toBeUndefined();
+    const fullData = JSON.parse(fullRes.content[0]!.text);
+    expect(fullData.tool_mode).toBe('full');
+    expect(fullData.libraries.ddep).toBeUndefined();
   });
 
   it('nds_list_raw_archives returns metadata only (no content blob)', async () => {
@@ -139,4 +137,3 @@ INSERT OR REPLACE INTO irdff_raw_archives VALUES ('irdff_n1.zip', 'n', 2, 'ddd',
     expect(String(data.note)).toContain('Capped limit');
   });
 });
-

@@ -12,20 +12,10 @@ function runSql(dbPath: string, sql: string): void {
 }
 
 describe('DDEP tools', () => {
-  const requiredMetaKeys = [
-    'schema_version',
-    'built_at',
-    'generator',
-    'generator_version',
-    'source_kind',
-    'upstream_name',
-    'upstream_url',
-    'upstream_version_or_snapshot',
-  ] as const;
-
   const envBackup = {
     NDS_DB_PATH: process.env.NDS_DB_PATH,
     NDS_DDEP_DB_PATH: process.env.NDS_DDEP_DB_PATH,
+    NDS_ENABLE_DDEP: process.env.NDS_ENABLE_DDEP,
   };
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nds-ddep-tools-'));
   const ddepDb = path.join(tmpRoot, 'ddep.sqlite');
@@ -85,6 +75,7 @@ VALUES
 
     process.env.NDS_DB_PATH = MAIN_FIXTURE_DB;
     process.env.NDS_DDEP_DB_PATH = ddepDb;
+    delete process.env.NDS_ENABLE_DDEP;
   });
 
   afterAll(() => {
@@ -92,36 +83,53 @@ VALUES
     else process.env.NDS_DB_PATH = envBackup.NDS_DB_PATH;
     if (envBackup.NDS_DDEP_DB_PATH === undefined) delete process.env.NDS_DDEP_DB_PATH;
     else process.env.NDS_DDEP_DB_PATH = envBackup.NDS_DDEP_DB_PATH;
+    if (envBackup.NDS_ENABLE_DDEP === undefined) delete process.env.NDS_ENABLE_DDEP;
+    else process.env.NDS_ENABLE_DDEP = envBackup.NDS_ENABLE_DDEP;
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it('nds_info returns ddep_db status and ddep_meta', async () => {
+  it('nds_info does not expose DDEP in standard tools', async () => {
     const result = await handleToolCall('nds_info', {});
     expect(result.isError).toBeUndefined();
     const data = JSON.parse(result.content[0]!.text);
-    expect(data.ddep_db.status).toBe('ok');
-    for (const key of requiredMetaKeys) {
-      expect(data.ddep_meta[key]).toBeDefined();
-    }
-    expect(data.ddep_meta.upstream_name).toBe('DDEP');
-    expect(data.ddep_meta.ddep_release).toBe('2026-01');
+    expect(data.ddep_db).toBeUndefined();
+    expect(data.ddep_meta).toBeUndefined();
   });
 
-  it('nds_get_ddep_decay returns half-life and filtered key radiation lines', async () => {
-    const result = await handleToolCall('nds_get_ddep_decay', {
-      Z: 27,
-      A: 60,
-      min_intensity: 0.9,
-      limit: 5,
-    }, 'full');
-    expect(result.isError).toBeUndefined();
-    const data = JSON.parse(result.content[0]!.text);
-    expect(data.Z).toBe(27);
-    expect(data.A).toBe(60);
-    expect(Array.isArray(data.half_life_values)).toBe(true);
-    expect(data.half_life_values[0].source).toContain('DDEP');
-    expect(data.recommended_half_life.source).toContain('DDEP');
-    expect(data.radiation.length).toBe(2);
-    expect(data.radiation[0].source).toContain('DDEP');
+  it('nds_get_ddep_decay is disabled unless explicitly enabled', async () => {
+    const result = await handleToolCall('nds_get_ddep_decay', { Z: 27, A: 60 } as any, 'full');
+    expect(result.isError).toBe(true);
+    const err = JSON.parse(result.content[0]!.text);
+    expect(err.error.code).toBe('INVALID_PARAMS');
+    expect(String(err.error.message)).toContain('Tool not exposed');
+  });
+
+  it('nds_get_ddep_decay returns half-life and filtered key radiation lines when enabled', async () => {
+    const prev = process.env.NDS_ENABLE_DDEP;
+    process.env.NDS_ENABLE_DDEP = '1';
+    try {
+      const result = await handleToolCall(
+        'nds_get_ddep_decay',
+        {
+          Z: 27,
+          A: 60,
+          min_intensity: 0.9,
+          limit: 5,
+        },
+        'full',
+      );
+      expect(result.isError).toBeUndefined();
+      const data = JSON.parse(result.content[0]!.text);
+      expect(data.Z).toBe(27);
+      expect(data.A).toBe(60);
+      expect(Array.isArray(data.half_life_values)).toBe(true);
+      expect(data.half_life_values[0].source).toContain('DDEP');
+      expect(data.recommended_half_life.source).toContain('DDEP');
+      expect(data.radiation.length).toBe(2);
+      expect(data.radiation[0].source).toContain('DDEP');
+    } finally {
+      if (prev === undefined) delete process.env.NDS_ENABLE_DDEP;
+      else process.env.NDS_ENABLE_DDEP = prev;
+    }
   });
 });

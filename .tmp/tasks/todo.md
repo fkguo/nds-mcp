@@ -218,12 +218,14 @@ Date: 2026-03-03
 Date: 2026-03-03
 
 - Changes checked:
-  - `README.md` now documents `ddep.sqlite` / `nds_get_ddep_decay` / `NDS_DDEP_DB_*` and clarifies full-mode behavior.
+  - `README.md` is written for standard-mode users and contains **no DDEP exposure** (no `ddep.sqlite`, no `nds_get_ddep_decay`, no `NDS_DDEP_DB_*`).
+  - Standard discovery/query tools (`nds_info`, `nds_catalog`, `nds_schema`, `nds_query`) do not expose DDEP.
+  - Internal-only DDEP tool is gated: only listed/callable when `NDS_TOOL_MODE=full` **and** `NDS_ENABLE_DDEP=1`.
   - `CLAUDE.md` and `AGENTS.md` now agree: plans live in `tasks/todo.md`, verification evidence in `.tmp/tasks/todo.md`.
-  - `NEXT.md` universal-query roadmap updated to reflect implemented tools.
 - Commands:
   - `pnpm lint` -> exit `0`
   - `pnpm test` -> exit `0`
   - `pnpm build` -> exit `0`
-  - `NDS_SIMPLE_JSONRPC_ONESHOT=1 node dist/index.js` (tools/list + tools/call smoke) -> exit `0`
-  - `NDS_SIMPLE_JSONRPC_ONESHOT=1 NDS_TOOL_MODE=full node dist/index.js` (tools/list smoke) -> exit `0`
+  - `echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | NDS_SIMPLE_JSONRPC_ONESHOT=1 node dist/index.js` -> exit `0`
+  - `echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | NDS_SIMPLE_JSONRPC_ONESHOT=1 NDS_TOOL_MODE=full node dist/index.js` -> exit `0` (DDEP not listed)
+  - `echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | NDS_SIMPLE_JSONRPC_ONESHOT=1 NDS_TOOL_MODE=full NDS_ENABLE_DDEP=1 node dist/index.js` -> exit `0` (DDEP listed)
