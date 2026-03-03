@@ -70,6 +70,48 @@ function normalizeReactionLabel(value: string): string {
   return value.trim().toLowerCase().replaceAll(/\s+/g, '');
 }
 
+function reactionDescription(projectile: string, reaction: string, mt: number): string {
+  const proj = projectile.trim().toLowerCase();
+  const rx = reaction.trim();
+  const normalized = normalizeReactionLabel(rx);
+
+  const base: Record<string, string> = {
+    [`${proj},total`]: 'Total cross section (sum over all interaction channels).',
+    [`${proj},elastic`]: 'Elastic scattering cross section.',
+    [`${proj},nonelastic`]: 'Non-elastic cross section (total minus elastic).',
+    [`${proj},fission`]: `Fission cross section (${proj},fission).`,
+    [`${proj},gamma`]: `Radiative capture cross section (${proj},γ).`,
+    [`${proj},p`]: `Proton emission cross section (${proj},p).`,
+    [`${proj},d`]: `Deuteron emission cross section (${proj},d).`,
+    [`${proj},t`]: `Triton emission cross section (${proj},t).`,
+    [`${proj},h`]: `Helium-3 emission cross section (${proj},h).`,
+    [`${proj},a`]: `Alpha emission cross section (${proj},α).`,
+    [`${proj},alpha`]: `Alpha emission cross section (${proj},α).`,
+    [`${proj},2n`]: `Two-neutron emission cross section (${proj},2n).`,
+    [`${proj},3n`]: `Three-neutron emission cross section (${proj},3n).`,
+    [`${proj},na`]: `Neutron + alpha emission cross section (${proj},nα).`,
+    [`${proj},np`]: `Neutron + proton emission cross section (${proj},np).`,
+  };
+  const direct = base[normalized];
+  if (direct) return direct;
+
+  const discrete = normalized.match(new RegExp(`^${proj},${proj}(\\d+)$`));
+  if (discrete) {
+    return `Inelastic scattering to discrete excited level ${discrete[1]} (${rx}).`;
+  }
+
+  if (normalized === `${proj},${proj}'`) {
+    return `Inelastic scattering (sum over excited states / continuum) (${rx}).`;
+  }
+
+  if (normalized === `${proj},mt${mt}`) {
+    return `ENDF MT=${mt} reaction channel (library label: ${rx}).`;
+  }
+
+  // Fallback: return something meaningful even when the library uses uncommon labels.
+  return `ENDF MT=${mt} reaction channel (${rx}).`;
+}
+
 function buildReactionAliasSuggestion(
   params: CrossSectionLookup,
   availableReactions: string[],
@@ -282,6 +324,7 @@ export async function getReactionInfo(
     reactions: available.map((row) => ({
       mt: row.mt,
       reaction: row.reaction,
+      reaction_description: reactionDescription(params.projectile, row.reaction, row.mt),
       e_min_eV: row.e_min_eV,
       e_max_eV: row.e_max_eV,
       n_points: row.n_points,
@@ -370,6 +413,7 @@ export async function queryCrossSectionTable(
       jendl5_xs_version: xsVersion,
       energy_unit: 'eV',
       cross_section_unit: 'b',
+      reaction_description: reactionDescription(meta.projectile, meta.reaction, meta.mt),
       requested_e_min_eV: eMin,
       requested_e_max_eV: eMax,
       e_min_eV: effectiveEMin,
@@ -394,6 +438,7 @@ export async function queryCrossSectionTable(
     jendl5_xs_version: xsVersion,
     energy_unit: 'eV',
     cross_section_unit: 'b',
+    reaction_description: reactionDescription(meta.projectile, meta.reaction, meta.mt),
     requested_e_min_eV: eMin,
     requested_e_max_eV: eMax,
     e_min_eV: effectiveEMin,
@@ -444,6 +489,7 @@ export async function interpolateCrossSection(
     projectile: meta.projectile,
     mt: meta.mt,
     reaction: meta.reaction,
+    reaction_description: reactionDescription(meta.projectile, meta.reaction, meta.mt),
     energy_eV: effectiveEnergy,
     sigma_b: result.sigma_b,
     interpolation_method: result.interpolation_method,

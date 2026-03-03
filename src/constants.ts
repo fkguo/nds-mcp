@@ -6,6 +6,10 @@ export const NDS_GET_DECAY = 'nds_get_decay' as const;
 export const NDS_GET_CHARGE_RADIUS = 'nds_get_charge_radius' as const;
 export const NDS_SEARCH = 'nds_search' as const;
 export const NDS_INFO = 'nds_info' as const;
+export const NDS_CATALOG = 'nds_catalog' as const;
+export const NDS_SCHEMA = 'nds_schema' as const;
+export const NDS_QUERY = 'nds_query' as const;
+export const NDS_LIST_RAW_ARCHIVES = 'nds_list_raw_archives' as const;
 export const NDS_CHECK_UPDATE = 'nds_check_update' as const;
 export const NDS_SELF_UPDATE = 'nds_self_update' as const;
 export const NDS_QUERY_LEVELS = 'nds_query_levels' as const;
@@ -32,6 +36,10 @@ export type NdsToolName =
   | typeof NDS_GET_CHARGE_RADIUS
   | typeof NDS_SEARCH
   | typeof NDS_INFO
+  | typeof NDS_CATALOG
+  | typeof NDS_SCHEMA
+  | typeof NDS_QUERY
+  | typeof NDS_LIST_RAW_ARCHIVES
   | typeof NDS_CHECK_UPDATE
   | typeof NDS_SELF_UPDATE
   | typeof NDS_QUERY_LEVELS

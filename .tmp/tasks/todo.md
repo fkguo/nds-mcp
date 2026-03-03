@@ -106,3 +106,124 @@ Decision: stop JEFF/ENDF/TENDL expansion for now; focus only on `FENDL-3.2c` and
   - `保持: 现有 nds/jendl5/exfor 工具默认查询行为未改`
 - Definition of done met:
   - `yes (for this iteration: M1 完成 + M2/M3 部分完成，剩余项已保留未勾选)`
+
+---
+
+# Task Plan: Universal Query Phase 1 (`nds_schema` + `nds_query`)
+
+Last updated: 2026-03-03
+
+## Scope
+
+- Implement `nds_schema` (standard) for schema discovery across installed SQLite DBs.
+- Implement `nds_query` (standard) for safe structured table queries (no raw SQL input).
+- Safety/guardrails required:
+  - DDEP hidden in `standard` mode (`library=ddep` rejected).
+  - BLOB columns never returned; BLOB columns cannot be explicitly selected.
+  - `*_points` tables require a high-selectivity equality filter (e.g. `xs_id` or `entry_id`).
+  - sqlite3 subprocess wall-time timeout (avoid hanging queries).
+- Add tests + README updates.
+
+## Checklist
+
+- [x] Add `nds_schema` + `nds_query` to tool registry + constants.
+- [x] `nds_schema`: tables/columns; optional indexes; include foreign keys.
+- [x] `nds_query`: identifier allowlist + value escaping + limit enforcement.
+- [x] Guard: `standard` mode rejects `library=ddep` (both tools).
+- [x] Guard: BLOB columns excluded / forbidden in `select`.
+- [x] Guard: `*_points` requires `where.eq.xs_id` or `where.eq.entry_id`.
+- [x] Guard: sqlite3 subprocess timeout enforced (and tested).
+- [x] Tests: schema output basics; guards; timeout.
+- [x] Docs: update `README.md` Tools list + brief usage notes.
+
+## Verification Log (must fill before completion)
+
+- Commands:
+  - `pnpm lint` -> exit `0`
+  - `pnpm test` -> exit `0`
+- Exit codes:
+  - `all 0`
+- Key evidence:
+  - `tests/universalQuery.test.ts covers: DDEP standard hidden, BLOB forbidden, *_points selectivity, sqlite3 wall-time timeout`
+
+---
+
+# Task Plan: Universal Query Phase 2+ (Raw Archives + ENDF Sections)
+
+Last updated: 2026-03-03  
+Decision: keep upstream **raw ENDF zip archives embedded inside SQLite** (BLOB) so agents can retrieve “complete information” without fully normalizing every ENDF MF/MT into dedicated tables.
+
+## Scope (proposed)
+
+- Keep current safety contracts:
+  - `nds_query` never returns BLOBs and forbids selecting them.
+  - Big-table guardrails remain mandatory.
+- Add minimal tooling to let agents *navigate* and *read bounded slices* of raw ENDF when needed.
+- Docs: explain acronyms (ENDF/MF/MT/MAT, etc.) and the raw-archive policy in plain language.
+
+## Proposed tools (next phases)
+
+- `nds_catalog` *(standard)*: one-shot navigation entrypoint (libraries + quantity directory + recommended tools).
+- `nds_list_raw_archives` *(standard)*: list raw archive **metadata only** (path/sha256/size/projectile); never returns BLOB.
+- `nds_export_raw_archive` *(full)*: export one embedded zip BLOB to a whitelisted directory (for manual inspection/cross-check).
+- `nds_endf_list_sections` *(full)*: list MAT/MF/MT sections inside one archive (bounded output; stable ordering).
+- `nds_endf_get_section` *(full)*: return a bounded ENDF text slice for a specific section (with strict size/time limits); agents can parse/interpret client-side.
+
+## Verification (when implemented)
+
+- Add tests for:
+  - path/sha256 allowlists and export directory restrictions
+  - output size limits (no accidental huge payloads)
+  - timeout behavior on malformed/hostile archives
+  - DDEP remains hidden in `standard` mode across discovery tools
+
+## Phase 2 (catalog + raw archive metadata): Verification Log
+
+Date: 2026-03-03
+
+- Commands:
+  - `pnpm lint` -> exit `0`
+  - `pnpm test` -> exit `0`
+- Exit codes:
+  - `all 0`
+- Key evidence:
+  - `tests/catalogRawArchives.test.ts covers: nds_catalog hides ddep in standard mode; nds_list_raw_archives never returns BLOB content; projectile/q filters + pagination; limit cap`
+
+## MT readability (reaction_description): Verification Log
+
+Date: 2026-03-03
+
+- Commands:
+  - `pnpm lint` -> exit `0`
+  - `pnpm test` -> exit `0`
+- Exit codes:
+  - `all 0`
+- Key evidence:
+  - `tests/phase2Tools.test.ts covers: cross-section tools return reaction_description alongside mt/reaction`
+
+## Release readiness (0.2.0): Verification Log
+
+Date: 2026-03-03
+
+- Commands:
+  - `pnpm build` -> exit `0`
+  - `NDS_SIMPLE_JSONRPC_ONESHOT=1 node dist/index.js` (tools/list + tools/call smoke) -> exit `0`
+  - `npm pack --dry-run` -> exit `0`
+- Key evidence:
+  - `tools/list includes: nds_catalog, nds_schema, nds_query, nds_list_raw_archives`
+  - `nds_interpolate_cross_section output includes reaction_description`
+
+## Doc/code consistency check (README + policy docs): Verification Log
+
+Date: 2026-03-03
+
+- Changes checked:
+  - `README.md` now documents `ddep.sqlite` / `nds_get_ddep_decay` / `NDS_DDEP_DB_*` and clarifies full-mode behavior.
+  - `CLAUDE.md` and `AGENTS.md` now agree: plans live in `tasks/todo.md`, verification evidence in `.tmp/tasks/todo.md`.
+  - `NEXT.md` universal-query roadmap updated to reflect implemented tools.
+- Commands:
+  - `pnpm lint` -> exit `0`
+  - `pnpm test` -> exit `0`
+  - `pnpm build` -> exit `0`
+  - `NDS_SIMPLE_JSONRPC_ONESHOT=1 node dist/index.js` (tools/list + tools/call smoke) -> exit `0`
+  - `NDS_SIMPLE_JSONRPC_ONESHOT=1 NDS_TOOL_MODE=full node dist/index.js` (tools/list smoke) -> exit `0`

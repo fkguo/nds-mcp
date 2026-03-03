@@ -17,6 +17,12 @@ This is a lightweight development plan for `nds-mcp` (not user-facing).
    - Maintain direct ingest path from official JENDL-5 300K ENDF-6 archives (`.tar.gz` with `.dat.gz`) and equivalent extracted directories/single ENDF files.
    - Done when: maintainers can rebuild `jendl5.sqlite` (XS) from upstream archives without any hand-prepared JSON/JSONL conversion step.
 
+4) **Universal query roadmap (agent-friendly, “complete info” without full MF/MT normalization)**
+   - Phase 1 (done in code): `nds_schema` + `nds_query` for safe schema discovery + structured queries (BLOB forbidden; points-table selectivity guard).
+   - Phase 2 (done in code): `nds_catalog` + `nds_list_raw_archives` (raw archive metadata only; never returns BLOB payloads).
+   - Next: implement `nds_export_raw_archive` (full) and ENDF section tools (`nds_endf_list_sections`, `nds_endf_get_section`) for MF/MT-level locating/reading without fully normalizing all ENDF files.
+   - Docs: keep README acronym/glossary explanations up-to-date (ENDF/MAT/MF/MT, SIG/MACS, etc.).
+
 ## Later (new data sources)
 
 - **RIPL-3** (level-density / optical-model / gamma-strength parameters) as a separate optional DB + tools.

@@ -116,6 +116,8 @@ INSERT INTO exfor_points VALUES ('E002', '001', 1, NULL, 30.0, 0.12, 0.005);
     const data = JSON.parse(result.content[0]!.text);
     expect(data.sigma_b).toBe(8);
     expect(String(data.interpolation_method)).toContain('left-limit');
+    expect(typeof data.reaction_description).toBe('string');
+    expect(data.reaction_description.length).toBeGreaterThan(0);
   });
 
   it('nds_interpolate_cross_section falls back for log interpolation with non-positive values', async () => {
@@ -125,6 +127,8 @@ INSERT INTO exfor_points VALUES ('E002', '001', 1, NULL, 30.0, 0.12, 0.005);
     expect(result.isError).toBeUndefined();
     const data = JSON.parse(result.content[0]!.text);
     expect(String(data.interpolation_method)).toContain('fallback');
+    expect(typeof data.reaction_description).toBe('string');
+    expect(data.reaction_description.length).toBeGreaterThan(0);
   });
 
   it('nds_interpolate_cross_section returns INVALID_PARAMS when out of range by default', async () => {
@@ -201,6 +205,9 @@ INSERT INTO exfor_points VALUES ('E002', '001', 1, NULL, 30.0, 0.12, 0.005);
     expect(data.reactions.length).toBeGreaterThanOrEqual(2);
     expect(data.reactions.some((row: any) => row.mt === 102 && row.reaction === 'n,gamma')).toBe(true);
     expect(data.reactions.some((row: any) => row.mt === 103 && row.reaction === 'n,p')).toBe(true);
+    const capture = data.reactions.find((row: any) => row.mt === 102 && row.reaction === 'n,gamma');
+    expect(typeof capture.reaction_description).toBe('string');
+    expect(capture.reaction_description.length).toBeGreaterThan(0);
   });
 
   it('nds_get_reaction_info provides suggestion for common reaction alias', async () => {

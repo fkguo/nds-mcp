@@ -1,0 +1,4 @@
+interface:
+  display_name: "Improve CLAUDE/AGENTS"
+  short_description: "Normalize CLAUDE.md and AGENTS.md workflow policy."
+  default_prompt: "Improve CLAUDE.md and AGENTS.md with balanced planning gates, required verification, and concise operational rules."

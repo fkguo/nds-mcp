@@ -37,10 +37,10 @@ describe('NDS MCP tool contracts', () => {
   });
 
   it('expected tool count', () => {
-    expect(TOOL_SPECS.length).toBe(24);
+    expect(TOOL_SPECS.length).toBe(28);
   });
 
   it('expected standard-mode tool count', () => {
-    expect(getTools('standard').length).toBe(22);
+    expect(getTools('standard').length).toBe(26);
   });
 });

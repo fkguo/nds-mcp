@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { invalidParams, upstreamError } from './errors.js';
+import { McpError, invalidParams, upstreamError } from './errors.js';
 
 export function sqlStringLiteral(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
@@ -25,6 +25,7 @@ const SQLITE_MAX_STDOUT_BYTES = parsePositiveIntEnv('SQLITE_MAX_STDOUT_BYTES', 5
 const SQLITE_CONCURRENCY = parsePositiveIntEnv('SQLITE_CONCURRENCY', 4);
 const SQLITE_BUSY_TIMEOUT_MS = parseNonNegativeIntEnv('SQLITE_BUSY_TIMEOUT_MS', 2000);
 const SQLITE_LOCK_RETRIES = parseNonNegativeIntEnv('SQLITE_LOCK_RETRIES', 2);
+const SQLITE_WALL_TIMEOUT_MS = parseNonNegativeIntEnv('SQLITE_WALL_TIMEOUT_MS', 30 * 1000);
 
 let inFlight = 0;
 const queue: Array<() => void> = [];
@@ -44,8 +45,18 @@ async function withSqliteConcurrencyLimit<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-export async function sqlite3JsonQuery(dbPath: string, sql: string): Promise<unknown[]> {
+export async function sqlite3JsonQuery(
+  dbPath: string,
+  sql: string,
+  options?: { timeoutMs?: number },
+): Promise<unknown[]> {
   return withSqliteConcurrencyLimit(async () => {
+    const wallTimeoutMs = (
+      options?.timeoutMs !== undefined
+        ? options.timeoutMs
+        : SQLITE_WALL_TIMEOUT_MS
+    );
+
     const args = [
       '-readonly',
       '-bail',
@@ -65,6 +76,15 @@ export async function sqlite3JsonQuery(dbPath: string, sql: string): Promise<unk
         let stdout = '';
         let stderr = '';
         let exceeded = false;
+        let timedOut = false;
+
+        const timer = wallTimeoutMs > 0
+          ? setTimeout(() => {
+            timedOut = true;
+            child.kill('SIGKILL');
+          }, wallTimeoutMs)
+          : undefined;
+        timer?.unref?.();
 
         child.stdout?.setEncoding('utf-8');
         child.stderr?.setEncoding('utf-8');
@@ -84,6 +104,16 @@ export async function sqlite3JsonQuery(dbPath: string, sql: string): Promise<unk
 
         child.on('error', err => reject(err));
         child.on('close', status => {
+          if (timer) clearTimeout(timer);
+          if (timedOut) {
+            reject(
+              upstreamError('sqlite3 query timed out', {
+                timeout_ms: wallTimeoutMs,
+                sql,
+              }),
+            );
+            return;
+          }
           if (exceeded) {
             reject(
               upstreamError('sqlite3 output exceeded SQLITE_MAX_STDOUT_BYTES', {
@@ -96,6 +126,7 @@ export async function sqlite3JsonQuery(dbPath: string, sql: string): Promise<unk
           resolve({ status, stdout, stderr });
         });
       }).catch(err => {
+        if (err instanceof McpError) throw err;
         const e = err as NodeJS.ErrnoException;
         if (e?.code === 'ENOENT') {
           throw invalidParams('sqlite3 not found in PATH; install sqlite3', {

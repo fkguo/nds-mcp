@@ -16,6 +16,15 @@ import { getFendlDbStatus } from '../db/fendlDb.js';
 import { getIrdffDbStatus } from '../db/irdffDb.js';
 import { queryRadiationSpectrum } from '../db/jendl5RadiationSpec.js';
 import {
+  assertSafeIdentifier,
+  getTableColumns,
+  getTableForeignKeys,
+  getTableIndexes,
+  isBlobColumn,
+  listTables,
+  resolveDbPathForLibrary,
+} from '../db/universalQuery.js';
+import {
   getReactionInfo,
   interpolateCrossSection,
   listAvailableTargetsByZ,
@@ -24,7 +33,7 @@ import {
 import { getExforEntry, searchExfor } from '../db/exfor.js';
 import { queryDdepDecay } from '../db/ddep.js';
 import { getCodataConstant, listCodataConstants } from '../db/codata.js';
-import { invalidParams, notFound, sqlite3JsonQuery } from '../shared/index.js';
+import { invalidParams, notFound, sqlite3JsonQuery, sqlStringLiteral } from '../shared/index.js';
 import { checkNpmUpdate, runNpmSelfUpdate } from '../selfUpdate.js';
 import {
   NDS_FIND_NUCLIDE,
@@ -35,6 +44,10 @@ import {
   NDS_GET_CHARGE_RADIUS,
   NDS_SEARCH,
   NDS_INFO,
+  NDS_CATALOG,
+  NDS_SCHEMA,
+  NDS_QUERY,
+  NDS_LIST_RAW_ARCHIVES,
   NDS_CHECK_UPDATE,
   NDS_SELF_UPDATE,
   NDS_QUERY_LEVELS,
@@ -56,7 +69,9 @@ import {
 export type ToolExposureMode = 'standard' | 'full';
 export type ToolExposure = 'standard' | 'full';
 
-export interface ToolHandlerContext {}
+export interface ToolHandlerContext {
+  mode: ToolExposureMode;
+}
 
 export interface ToolSpec<TSchema extends z.ZodType<any, any> = z.ZodType<any, any>> {
   name: string;
@@ -101,6 +116,68 @@ const NdsCheckUpdateSchema = z.object({});
 const NdsSelfUpdateSchema = z.object({
   confirm: z.boolean().default(false).describe('Must be true to execute npm self-update.'),
   target: z.string().optional().default('latest').describe('npm dist-tag or version, e.g. "latest" or "0.3.1".'),
+});
+
+const NdsCatalogSchema = z.object({});
+
+const UniversalQueryLibrarySchema = z.enum(['nds', 'jendl5', 'exfor', 'fendl32c', 'irdff2', 'ddep']);
+
+const NdsSchemaSchema = z.object({
+  library: UniversalQueryLibrarySchema.describe('Database to inspect: nds|jendl5|exfor|fendl32c|irdff2|ddep (ddep is full-only)'),
+  include_indexes: z.boolean().optional().default(false).describe('Include index metadata (name/columns).'),
+});
+
+const RawArchiveLibrarySchema = z.enum(['fendl32c', 'irdff2']);
+const RawArchiveProjectileSchema = z.enum(['n', 'p', 'd', 't', 'h', 'a', 'g', 'photo', 'unknown']);
+
+const NdsListRawArchivesSchema = z.object({
+  library: RawArchiveLibrarySchema.describe('Raw archive library to browse: fendl32c|irdff2'),
+  projectile: RawArchiveProjectileSchema.optional().describe('Projectile selector (fendl32c only; ignored if absent).'),
+  q: z.string().min(1).optional().describe('Substring match on rel_path (case-sensitive).'),
+  limit: z.number().int().min(1).describe('Required. Hard-capped server-side (default cap: 5000).'),
+  offset: z.number().int().min(0).optional().default(0),
+});
+
+const NdsQueryWhereSchema = z.object({
+  eq: z.record(z.string(), z.union([z.string(), z.number(), z.null()]))
+    .optional()
+    .describe('Equality filters. null means IS NULL.'),
+  range: z.array(z.object({
+    col: z.string().min(1),
+    gte: z.union([z.string(), z.number()]).optional(),
+    lte: z.union([z.string(), z.number()]).optional(),
+  }))
+    .optional()
+    .describe('Range filters (gte/lte).'),
+  in: z.array(z.object({
+    col: z.string().min(1),
+    values: z.array(z.union([z.string(), z.number()])).min(1),
+  }))
+    .optional()
+    .describe('IN-list filters.'),
+  like: z.array(z.object({
+    col: z.string().min(1),
+    pattern: z.string().min(1),
+  }))
+    .optional()
+    .describe('LIKE filters (use % and _ wildcards).'),
+}).optional();
+
+const NdsQuerySchema = z.object({
+  library: UniversalQueryLibrarySchema.describe('Database to query: nds|jendl5|exfor|fendl32c|irdff2|ddep (ddep is full-only)'),
+  table: z.string().min(1).describe('Table or view name (must exist; [A-Za-z0-9_]+ only).'),
+  select: z.array(z.string().min(1))
+    .optional()
+    .describe('Column allowlist. If omitted, selects all non-BLOB columns.'),
+  where: NdsQueryWhereSchema,
+  order_by: z.array(z.object({
+    col: z.string().min(1),
+    dir: z.enum(['asc', 'desc']).optional().default('asc'),
+  }))
+    .optional()
+    .describe('Sort order.'),
+  limit: z.number().int().min(1).describe('Required. Hard-capped server-side (default cap: 5000).'),
+  offset: z.number().int().min(0).optional().default(0),
 });
 
 const NdsFindNuclideSchema = z.object({
@@ -373,6 +450,591 @@ export const TOOL_SPECS: ToolSpec[] = [
           ? await loadKeyValueMeta(ddepDb.path, 'ddep_meta')
           : null,
         codata_meta: await loadKeyValueMeta(mainDb.path, 'codata_meta'),
+      };
+    },
+  },
+  {
+    name: NDS_CATALOG,
+    description: 'Catalog installed libraries and query entrypoints (what exists, where to query, and which tools to use).',
+    exposure: 'standard',
+    zodSchema: NdsCatalogSchema,
+    handler: async (_params, ctx) => {
+      const mainDb = getMainDbStatus();
+      const fendlDb = getFendlDbStatus();
+      const irdffDb = getIrdffDbStatus();
+      const jendl5Db = getJendl5DbStatus();
+      const exforDb = getExforDbStatus();
+      const ddepDb = getDdepDbStatus();
+
+      const libraries: Record<string, unknown> = {
+        nds: {
+          ...mainDb,
+          meta: mainDb.status === 'ok' && mainDb.path ? await loadKeyValueMeta(mainDb.path, 'nds_meta') : null,
+          codata_meta: mainDb.status === 'ok' && mainDb.path ? await loadKeyValueMeta(mainDb.path, 'codata_meta') : null,
+        },
+        jendl5: {
+          ...jendl5Db,
+          meta: jendl5Db.status === 'ok' && jendl5Db.path ? await loadKeyValueMeta(jendl5Db.path, 'jendl5_meta') : null,
+        },
+        exfor: {
+          ...exforDb,
+          meta: exforDb.status === 'ok' && exforDb.path ? await loadKeyValueMeta(exforDb.path, 'exfor_meta') : null,
+        },
+        fendl32c: {
+          ...fendlDb,
+          meta: fendlDb.status === 'ok' && fendlDb.path ? await loadKeyValueMeta(fendlDb.path, 'fendl_meta') : null,
+        },
+        irdff2: {
+          ...irdffDb,
+          meta: irdffDb.status === 'ok' && irdffDb.path ? await loadKeyValueMeta(irdffDb.path, 'irdff_meta') : null,
+        },
+      };
+
+      if (ctx.mode === 'full') {
+        (libraries as Record<string, unknown>).ddep = {
+          ...ddepDb,
+          meta: ddepDb.status === 'ok' && ddepDb.path ? await loadKeyValueMeta(ddepDb.path, 'ddep_meta') : null,
+        };
+      }
+
+      const quantitiesBase = [
+        {
+          quantity_id: 'atomic_mass',
+          category: 'masses',
+          entity_kind: 'nuclide',
+          description: 'Atomic masses, mass excess, binding energy per nucleon (AME2020).',
+          source_libraries: ['nds'],
+          primary_tables: ['ame_masses'],
+          recommended_tools: ['nds_get_mass'],
+          example_calls: [
+            { tool: 'nds_get_mass', args: { Z: 82, A: 208 } },
+            { tool: 'nds_query', args: { library: 'nds', table: 'ame_masses', where: { eq: { Z: 82, A: 208 } }, limit: 5 } },
+          ],
+        },
+        {
+          quantity_id: 'separation_energies',
+          category: 'masses',
+          entity_kind: 'nuclide',
+          description: 'Nucleon separation energies Sn/Sp/S2n/S2p (AME2020).',
+          source_libraries: ['nds'],
+          primary_tables: ['ame_reactions'],
+          recommended_tools: ['nds_get_separation_energy'],
+          example_calls: [
+            { tool: 'nds_get_separation_energy', args: { Z: 82, A: 208, type: 'S2n' } },
+          ],
+        },
+        {
+          quantity_id: 'reaction_q_values',
+          category: 'masses',
+          entity_kind: 'nuclide',
+          description: 'Reaction Q-values (AME2020), e.g. Qa, Q2bm, Qep, Qbn.',
+          source_libraries: ['nds'],
+          primary_tables: ['ame_reactions'],
+          recommended_tools: ['nds_get_q_value'],
+          example_calls: [
+            { tool: 'nds_get_q_value', args: { Z: 82, A: 208, type: 'Qa' } },
+          ],
+        },
+        {
+          quantity_id: 'nuclide_decay_properties',
+          category: 'decay',
+          entity_kind: 'nuclide',
+          description: 'Half-life, spin/parity, decay modes, isomers (NUBASE2020).',
+          source_libraries: ['nds'],
+          primary_tables: ['nubase'],
+          recommended_tools: ['nds_get_decay', 'nds_find_nuclide', 'nds_search'],
+          example_calls: [
+            { tool: 'nds_get_decay', args: { Z: 82, A: 208 } },
+          ],
+        },
+        {
+          quantity_id: 'charge_radii',
+          category: 'structure',
+          entity_kind: 'nuclide',
+          description: 'RMS nuclear charge radii (IAEA + Li et al. laser spectroscopy), source-aware comparison.',
+          source_libraries: ['nds'],
+          primary_tables: ['charge_radii', 'laser_radii', 'laser_radii_refs'],
+          recommended_tools: ['nds_get_charge_radius'],
+          example_calls: [
+            { tool: 'nds_get_charge_radius', args: { Z: 82, A: 208, mode: 'compare' } },
+          ],
+        },
+        {
+          quantity_id: 'levels',
+          category: 'structure',
+          entity_kind: 'nuclide',
+          description: 'Nuclear energy levels (ENSDF), with optional merge of TUNL light-nuclei tables (A ≤ 20).',
+          source_libraries: ['nds'],
+          primary_tables: ['ensdf_levels', 'tunl_levels'],
+          recommended_tools: ['nds_query_levels'],
+          example_calls: [
+            { tool: 'nds_query_levels', args: { Z: 6, A: 12, limit: 50 } },
+          ],
+        },
+        {
+          quantity_id: 'gamma_transitions',
+          category: 'structure',
+          entity_kind: 'transition',
+          description: 'Gamma-ray transition data (ENSDF).',
+          source_libraries: ['nds'],
+          primary_tables: ['ensdf_gammas'],
+          recommended_tools: ['nds_query_gammas'],
+          example_calls: [
+            { tool: 'nds_query_gammas', args: { Z: 82, A: 208, limit: 50 } },
+          ],
+        },
+        {
+          quantity_id: 'beta_decay_feedings',
+          category: 'structure',
+          entity_kind: 'dataset',
+          description: 'Beta/EC decay feeding patterns (ENSDF).',
+          source_libraries: ['nds'],
+          primary_tables: ['ensdf_decay_feedings'],
+          recommended_tools: ['nds_query_decay_feedings'],
+          example_calls: [
+            { tool: 'nds_query_decay_feedings', args: { Z: 82, A: 208, limit: 50 } },
+          ],
+        },
+        {
+          quantity_id: 'ensdf_references',
+          category: 'structure',
+          entity_kind: 'dataset',
+          description: 'Bibliographic references (ENSDF/NSR).',
+          source_libraries: ['nds'],
+          primary_tables: ['ensdf_references'],
+          recommended_tools: ['nds_lookup_reference'],
+          example_calls: [
+            { tool: 'nds_lookup_reference', args: { A: 208 } },
+          ],
+        },
+        {
+          quantity_id: 'codata_constants',
+          category: 'constants',
+          entity_kind: 'constant',
+          description: 'CODATA recommended fundamental constants (value/uncertainty/unit).',
+          source_libraries: ['nds'],
+          primary_tables: ['codata_constants'],
+          recommended_tools: ['nds_get_constant', 'nds_list_constants'],
+          example_calls: [
+            { tool: 'nds_get_constant', args: { name: 'speed of light in vacuum' } },
+          ],
+        },
+        {
+          quantity_id: 'jendl5_decay_radiation',
+          category: 'decay',
+          entity_kind: 'nuclide',
+          description: 'JENDL-5 decay radiation spectra (discrete lines + continuous summaries).',
+          source_libraries: ['jendl5'],
+          primary_tables: ['jendl5_decays', 'jendl5_decay_modes', 'jendl5_radiation'],
+          recommended_tools: ['nds_get_radiation_spectrum'],
+          example_calls: [
+            { tool: 'nds_get_radiation_spectrum', args: { Z: 82, A: 208, state: 0, type: 'gamma' } },
+          ],
+        },
+        {
+          quantity_id: 'evaluated_cross_sections',
+          category: 'xs',
+          entity_kind: 'reaction',
+          description: 'Evaluated pointwise cross sections (ENDF-6 MF=3) with interpolation laws (NBT/INT).',
+          source_libraries: ['jendl5', 'fendl32c', 'irdff2'],
+          primary_tables: [
+            'jendl5_xs_meta', 'jendl5_xs_points', 'jendl5_xs_interp',
+            'fendl_xs_meta', 'fendl_xs_points', 'fendl_xs_interp',
+            'irdff_xs_meta', 'irdff_xs_points', 'irdff_xs_interp',
+          ],
+          recommended_tools: [
+            'nds_list_available_targets',
+            'nds_get_reaction_info',
+            'nds_get_cross_section_table',
+            'nds_interpolate_cross_section',
+          ],
+          example_calls: [
+            { tool: 'nds_get_reaction_info', args: { Z: 82, A: 208, projectile: 'n', state: 0 } },
+            { tool: 'nds_query', args: { library: 'fendl32c', table: 'fendl_xs_meta', where: { eq: { Z: 82, A: 208, projectile: 'n', state: 0 } }, limit: 50 } },
+          ],
+        },
+        {
+          quantity_id: 'exfor_points',
+          category: 'experimental',
+          entity_kind: 'reaction',
+          description: 'EXFOR experimental points (cross sections and related quantities) + per-entry metadata.',
+          source_libraries: ['exfor'],
+          primary_tables: ['exfor_entries', 'exfor_points'],
+          recommended_tools: ['nds_search_exfor', 'nds_get_exfor_entry'],
+          example_calls: [
+            { tool: 'nds_search_exfor', args: { Z: 82, A: 208, projectile: 'n', quantity: 'SIG', limit: 20 } },
+          ],
+        },
+        {
+          quantity_id: 'raw_endf_archives',
+          category: 'raw_endf',
+          entity_kind: 'dataset',
+          description: 'Embedded upstream ENDF-6 archives (zip) stored as SQLite BLOBs (metadata is queryable; payload is not returned in standard tools).',
+          source_libraries: ['fendl32c', 'irdff2'],
+          primary_tables: ['fendl_raw_archives', 'irdff_raw_archives'],
+          recommended_tools: ['nds_list_raw_archives'],
+          example_calls: [
+            { tool: 'nds_list_raw_archives', args: { library: 'fendl32c', projectile: 'n', limit: 20 } },
+          ],
+        },
+      ] as const;
+
+      const quantities = ctx.mode === 'full'
+        ? quantitiesBase
+        : quantitiesBase.map((q) => ({
+          ...q,
+          source_libraries: (q.source_libraries as readonly string[]).filter((lib) => lib !== 'ddep'),
+        }));
+
+      return {
+        tool_mode: ctx.mode,
+        libraries,
+        quantities,
+        note: 'Use nds_schema to inspect tables/columns, then nds_query for safe structured queries (BLOB columns are never returned).',
+      };
+    },
+  },
+  {
+    name: NDS_SCHEMA,
+    description: 'Inspect SQLite schema for an installed NDS database library (tables/columns/foreign keys, optional indexes).',
+    exposure: 'standard',
+    zodSchema: NdsSchemaSchema,
+    handler: async (params, ctx) => {
+      if (params.library === 'ddep' && ctx.mode !== 'full') {
+        throw invalidParams('DDEP is internal-only and not visible in standard mode.', {
+          library: params.library,
+          how_to: 'Set NDS_TOOL_MODE=full to enable internal tools and libraries.',
+        });
+      }
+
+      const dbPath = await resolveDbPathForLibrary(params.library);
+      const tables = await listTables(dbPath);
+
+      const tableSchemas = await Promise.all(tables.map(async (t) => {
+        const columns = await getTableColumns(dbPath, t.name);
+        const foreignKeys = await getTableForeignKeys(dbPath, t.name);
+        const indexes = params.include_indexes ? await getTableIndexes(dbPath, t.name) : undefined;
+        return {
+          name: t.name,
+          type: t.type,
+          columns,
+          foreign_keys: foreignKeys,
+          ...(indexes ? { indexes } : {}),
+        };
+      }));
+
+      return {
+        library: params.library,
+        db_path: dbPath,
+        tables: tableSchemas,
+      };
+    },
+  },
+  {
+    name: NDS_QUERY,
+    description: 'Safe structured query builder over SQLite tables (filter/sort/paginate; no raw SQL input).',
+    exposure: 'standard',
+    zodSchema: NdsQuerySchema,
+    handler: async (params, ctx) => {
+      if (params.library === 'ddep' && ctx.mode !== 'full') {
+        throw invalidParams('DDEP is internal-only and not visible in standard mode.', {
+          library: params.library,
+          how_to: 'Set NDS_TOOL_MODE=full to enable internal tools and libraries.',
+        });
+      }
+
+      const MAX_LIMIT = 5000;
+
+      assertSafeIdentifier(params.table, 'table');
+
+      const dbPath = await resolveDbPathForLibrary(params.library);
+
+      const tableLookup = await sqlite3JsonQuery(
+        dbPath,
+        `SELECT name, type
+         FROM sqlite_master
+         WHERE type IN ('table','view')
+           AND name=${sqlStringLiteral(params.table)}
+           AND name NOT LIKE 'sqlite_%'
+         LIMIT 1`,
+      );
+      if (tableLookup.length === 0) {
+        throw invalidParams(`Unknown table or view: ${params.table}`, {
+          library: params.library,
+          table: params.table,
+          how_to: 'Call nds_schema first to discover available table/view names.',
+        });
+      }
+
+      const columns = await getTableColumns(dbPath, params.table);
+      const colByName = new Map(columns.map(c => [c.name, c] as const));
+      const blobCols = columns.filter(isBlobColumn).map(c => c.name);
+      const nonBlobCols = columns.filter(c => !isBlobColumn(c)).map(c => c.name);
+
+      if (nonBlobCols.length === 0) {
+        throw invalidParams(`Refusing to query table with only BLOB columns: ${params.table}`, {
+          library: params.library,
+          table: params.table,
+        });
+      }
+
+      const notes: string[] = [];
+
+      const selectedCols = (() => {
+        if (!params.select || params.select.length === 0) {
+          if (blobCols.length > 0) {
+            notes.push(`Excluded BLOB columns from default select: ${blobCols.join(', ')}`);
+          }
+          return nonBlobCols;
+        }
+
+        const out: string[] = [];
+        const seen = new Set<string>();
+        for (const col of params.select) {
+          assertSafeIdentifier(col, 'column');
+          const schemaCol = colByName.get(col);
+          if (!schemaCol) {
+            throw invalidParams(`Unknown column in select: ${col}`, {
+              library: params.library,
+              table: params.table,
+              column: col,
+            });
+          }
+          if (isBlobColumn(schemaCol)) {
+            throw invalidParams(`BLOB columns are not allowed in select: ${col}`, {
+              library: params.library,
+              table: params.table,
+              column: col,
+              rule: 'BLOB columns cannot be selected or returned.',
+            });
+          }
+          if (!seen.has(col)) {
+            out.push(col);
+            seen.add(col);
+          }
+        }
+        if (out.length === 0) {
+          throw invalidParams('select must include at least one non-BLOB column', {
+            library: params.library,
+            table: params.table,
+          });
+        }
+        return out;
+      })();
+
+      const where = params.where ?? {};
+
+      if (params.table.endsWith('_points')) {
+        const eq = where.eq ?? {};
+        const hasXsId = Object.prototype.hasOwnProperty.call(eq, 'xs_id') && (eq as Record<string, unknown>).xs_id !== null;
+        const hasEntryId = Object.prototype.hasOwnProperty.call(eq, 'entry_id') && (eq as Record<string, unknown>).entry_id !== null;
+        if (!hasXsId && !hasEntryId) {
+          throw invalidParams(
+            'High-selectivity equality filter required for *_points tables (use where.eq.xs_id or where.eq.entry_id).',
+            {
+              library: params.library,
+              table: params.table,
+              rule: 'points_table_requires_eq_parent_id',
+              how_to: 'Query the corresponding *_meta/*_entries table to obtain xs_id/entry_id, then query *_points.',
+            },
+          );
+        }
+      }
+
+      const conditions: string[] = [];
+
+      const requireNonBlobColumn = (col: string, usage: string): void => {
+        const schemaCol = colByName.get(col);
+        if (!schemaCol) {
+          throw invalidParams(`Unknown column in ${usage}: ${col}`, {
+            library: params.library,
+            table: params.table,
+            column: col,
+          });
+        }
+        if (isBlobColumn(schemaCol)) {
+          throw invalidParams(`BLOB columns are not allowed in ${usage}: ${col}`, {
+            library: params.library,
+            table: params.table,
+            column: col,
+          });
+        }
+      };
+
+      const sqlValueLiteral = (value: string | number): string => {
+        if (typeof value === 'number') {
+          if (!Number.isFinite(value)) {
+            throw invalidParams('Non-finite number is not allowed in query filters.', {
+              value,
+            });
+          }
+          return String(value);
+        }
+        return sqlStringLiteral(value);
+      };
+
+      if (where.eq) {
+        for (const [col, value] of Object.entries(where.eq)) {
+          assertSafeIdentifier(col, 'column');
+          requireNonBlobColumn(col, 'where.eq');
+          if (value === null) {
+            conditions.push(`"${col}" IS NULL`);
+          } else if (typeof value === 'string' || typeof value === 'number') {
+            conditions.push(`"${col}" = ${sqlValueLiteral(value)}`);
+          } else {
+            throw invalidParams('where.eq values must be string|number|null', {
+              library: params.library,
+              table: params.table,
+              col,
+              value,
+            });
+          }
+        }
+      }
+
+      if (where.range) {
+        for (const r of where.range) {
+          assertSafeIdentifier(r.col, 'column');
+          requireNonBlobColumn(r.col, 'where.range');
+          if (r.gte === undefined && r.lte === undefined) {
+            throw invalidParams('where.range entries must set at least one of gte/lte', {
+              library: params.library,
+              table: params.table,
+              col: r.col,
+            });
+          }
+          if (r.gte !== undefined) conditions.push(`"${r.col}" >= ${sqlValueLiteral(r.gte)}`);
+          if (r.lte !== undefined) conditions.push(`"${r.col}" <= ${sqlValueLiteral(r.lte)}`);
+        }
+      }
+
+      if (where.in) {
+        for (const r of where.in) {
+          assertSafeIdentifier(r.col, 'column');
+          requireNonBlobColumn(r.col, 'where.in');
+          if (!Array.isArray(r.values) || r.values.length === 0) {
+            throw invalidParams('where.in values must be a non-empty array', {
+              library: params.library,
+              table: params.table,
+              col: r.col,
+            });
+          }
+          const lits = r.values.map((v: unknown) => {
+            if (typeof v === 'string' || typeof v === 'number') return sqlValueLiteral(v);
+            throw invalidParams('where.in values must be string|number', {
+              library: params.library,
+              table: params.table,
+              col: r.col,
+              value: v,
+            });
+          });
+          conditions.push(`"${r.col}" IN (${lits.join(', ')})`);
+        }
+      }
+
+      if (where.like) {
+        for (const r of where.like) {
+          assertSafeIdentifier(r.col, 'column');
+          requireNonBlobColumn(r.col, 'where.like');
+          conditions.push(`"${r.col}" LIKE ${sqlStringLiteral(r.pattern)}`);
+        }
+      }
+
+      const orderByParts: string[] = [];
+      if (params.order_by) {
+        for (const ob of params.order_by) {
+          assertSafeIdentifier(ob.col, 'column');
+          requireNonBlobColumn(ob.col, 'order_by');
+          const dir = ob.dir === 'desc' ? 'DESC' : 'ASC';
+          orderByParts.push(`"${ob.col}" ${dir}`);
+        }
+      }
+
+      let limit = params.limit;
+      const offset = params.offset ?? 0;
+      if (limit > MAX_LIMIT) {
+        notes.push(`Capped limit from ${limit} to ${MAX_LIMIT}.`);
+        limit = MAX_LIMIT;
+      }
+
+      const selectSql = selectedCols.map(c => `"${c}"`).join(', ');
+      const whereSql = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
+      const orderSql = orderByParts.length > 0 ? ` ORDER BY ${orderByParts.join(', ')}` : '';
+      const sql = `SELECT ${selectSql} FROM "${params.table}"${whereSql}${orderSql} LIMIT ${limit} OFFSET ${offset}`;
+
+      const rows = await sqlite3JsonQuery(dbPath, sql);
+
+      return {
+        rows,
+        page: {
+          limit,
+          offset,
+          returned: rows.length,
+        },
+        ...(notes.length > 0 ? { note: notes.join(' ') } : {}),
+      };
+    },
+  },
+  {
+    name: NDS_LIST_RAW_ARCHIVES,
+    description: 'List embedded upstream ENDF-6 zip archive metadata for FENDL/IRDFF (never returns BLOB payloads).',
+    exposure: 'standard',
+    zodSchema: NdsListRawArchivesSchema,
+    handler: async (params) => {
+      const MAX_LIMIT = 5000;
+      const notes: string[] = [];
+
+      let limit = params.limit;
+      if (limit > MAX_LIMIT) {
+        notes.push(`Capped limit from ${limit} to ${MAX_LIMIT}.`);
+        limit = MAX_LIMIT;
+      }
+      const offset = params.offset ?? 0;
+
+      const dbPath = await resolveDbPathForLibrary(params.library);
+      const table = params.library === 'fendl32c' ? 'fendl_raw_archives' : 'irdff_raw_archives';
+
+      const tableLookup = await sqlite3JsonQuery(
+        dbPath,
+        `SELECT name
+         FROM sqlite_master
+         WHERE type='table' AND name=${sqlStringLiteral(table)}
+         LIMIT 1`,
+      );
+      if (tableLookup.length === 0) {
+        throw invalidParams(`Raw archives table not found: ${table}`, {
+          library: params.library,
+          table,
+          how_to: 'Rebuild or update the corresponding SQLite file so it includes the raw archive table.',
+        });
+      }
+
+      const conditions: string[] = [];
+      if (params.projectile !== undefined) {
+        conditions.push(`projectile=${sqlStringLiteral(params.projectile)}`);
+      }
+      if (params.q !== undefined) {
+        conditions.push(`instr(rel_path, ${sqlStringLiteral(params.q)}) > 0`);
+      }
+      const whereSql = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
+
+      const rows = await sqlite3JsonQuery(
+        dbPath,
+        `SELECT rel_path, projectile, size_bytes, sha256
+         FROM "${table}"${whereSql}
+         ORDER BY rel_path
+         LIMIT ${limit}
+         OFFSET ${offset}`,
+      );
+
+      return {
+        rows,
+        page: {
+          limit,
+          offset,
+          returned: rows.length,
+        },
+        ...(notes.length > 0 ? { note: notes.join(' ') } : {}),
       };
     },
   },

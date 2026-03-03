@@ -37,6 +37,33 @@ Offline SQLite-backed MCP server for nuclear physics data queries.
 - **Docs sync**: Any change to DB files (new DB, schema, contents, download URLs, env vars) must update `README.md` in the same PR.
 - **Release gating (required)**: Every newly included optional DB must have a locally constructed sqlite artifact (e.g. `~/.nds-mcp/ddep.sqlite`) before claiming the step is complete and before uploading release assets.
 
+## Execution Workflow (v2)
+
+- **Scope gate**:
+  - Small, low-risk edits (single-file, easy rollback) can skip heavy planning.
+  - Multi-step, high-risk, or architecture-changing work must start with an explicit plan.
+- **Explore -> plan -> implement**:
+  - Start with read-only exploration and constraints capture.
+  - For non-trivial work, write a checkable plan in `tasks/todo.md`.
+  - Implement with minimal surface-area changes.
+- **Verification gate (required)**:
+  - Do not claim completion without evidence.
+  - Run relevant tests/build/static checks and record the commands/results in `.tmp/tasks/todo.md`.
+  - For behavior-sensitive changes, compare before/after behavior.
+  - Definition of done: required checks pass and evidence is recorded.
+- **Subagent policy**:
+  - Use subagents for parallelizable, context-heavy, or independent subproblems.
+  - Do not spawn agents by default when single-threaded execution is simpler.
+- **Feedback and lessons**:
+  - When user correction is generalizable, add a short prevention rule to `tasks/lessons.md`.
+  - Keep lessons concise, actionable, and deduplicated.
+- **Context hygiene**:
+  - If execution drifts, stop and re-plan instead of pushing forward blindly.
+  - Keep `CLAUDE.md` compact; place task-specific detail in task docs.
+- **Safety defaults**:
+  - Treat high-impact operations conservatively and verify assumptions before applying them.
+  - Prefer structured outputs between steps to reduce accidental misuse.
+
 ## Environment Variables
 
 | Variable | Default | Description |

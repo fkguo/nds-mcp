@@ -67,7 +67,7 @@ export async function handleToolCall(
     }
 
     const parsedArgs = parseToolArgs(name, spec.zodSchema, args);
-    const result = await (spec as ToolSpec<typeof spec.zodSchema>).handler(parsedArgs, {});
+    const result = await (spec as ToolSpec<typeof spec.zodSchema>).handler(parsedArgs, { mode });
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   } catch (err) {
     return formatToolError(err);
