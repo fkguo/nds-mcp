@@ -198,6 +198,50 @@ Date: 2026-03-03
   - `pnpm test` -> exit `0`
 - Exit codes:
   - `all 0`
+
+---
+
+# Release: v0.2.0 (npm + GitHub)
+
+Date: 2026-03-04
+
+## Actions
+
+- Verified npm published version:
+  - `npm view nds-mcp version` -> `0.2.0`
+- Pushed repo + created tag:
+  - `git push origin main`
+  - `git tag -a v0.2.0 -m "nds-mcp v0.2.0" && git push origin v0.2.0`
+- Created GitHub Release:
+  - `gh release create v0.2.0 --repo fkguo/nds-mcp ...`
+- Uploaded GitHub Release assets (all `*.sqlite.gz`):
+  - `nds.sqlite.gz` (required)
+  - `jendl5.sqlite.gz`, `exfor.sqlite.gz`, `fendl32c.sqlite.gz`, `irdff2.sqlite.gz` (optional)
+  - Intentionally did **not** upload `ddep.sqlite.gz` (DDEP is sample-only / not user-usable; keep it non-exposed).
+
+## Verification Log
+
+- Commands:
+  - `pnpm test` -> exit `0`
+  - `scripts/check-db.sh --only main,jendl5,exfor` -> exit `0`
+  - FENDL/IRDFF spot checks:
+    - `sqlite3 ~/.nds-mcp/fendl32c.sqlite "SELECT COUNT(*) FROM fendl_meta;"` -> `12`
+    - `sqlite3 ~/.nds-mcp/fendl32c.sqlite "SELECT COUNT(*) FROM fendl_xs_meta;"` -> `10722`
+    - `sqlite3 ~/.nds-mcp/fendl32c.sqlite "SELECT COUNT(*) FROM fendl_xs_points;"` -> `1081212`
+    - `sqlite3 ~/.nds-mcp/fendl32c.sqlite "SELECT COUNT(*) FROM fendl_raw_archives;"` -> `607`
+    - `sqlite3 ~/.nds-mcp/irdff2.sqlite "SELECT COUNT(*) FROM irdff_meta;"` -> `12`
+    - `sqlite3 ~/.nds-mcp/irdff2.sqlite "SELECT COUNT(*) FROM irdff_xs_meta;"` -> `139`
+    - `sqlite3 ~/.nds-mcp/irdff2.sqlite "SELECT COUNT(*) FROM irdff_xs_points;"` -> `2317404`
+    - `sqlite3 ~/.nds-mcp/irdff2.sqlite "SELECT COUNT(*) FROM irdff_raw_archives;"` -> `70`
+  - Release asset presence:
+    - `gh release view v0.2.0 --repo fkguo/nds-mcp --json assets` -> includes all 5 assets above
+  - Latest download URLs respond:
+    - `curl -sSIL -o /dev/null -w "%{http_code}\n" https://github.com/fkguo/nds-mcp/releases/latest/download/nds.sqlite.gz` -> `200`
+    - `curl -sSIL -o /dev/null -w "%{http_code}\n" https://github.com/fkguo/nds-mcp/releases/latest/download/jendl5.sqlite.gz` -> `200`
+    - `curl -sSIL -o /dev/null -w "%{http_code}\n" https://github.com/fkguo/nds-mcp/releases/latest/download/exfor.sqlite.gz` -> `200`
+    - `curl -sSIL -o /dev/null -w "%{http_code}\n" https://github.com/fkguo/nds-mcp/releases/latest/download/fendl32c.sqlite.gz` -> `200`
+    - `curl -sSIL -o /dev/null -w "%{http_code}\n" https://github.com/fkguo/nds-mcp/releases/latest/download/irdff2.sqlite.gz` -> `200`
+
 - Key evidence:
   - `tests/phase2Tools.test.ts covers: cross-section tools return reaction_description alongside mt/reaction`
 
