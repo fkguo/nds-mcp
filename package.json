@@ -18,7 +18,7 @@
     }
   },
   "bin": {
-    "nds-mcp": "./bin/nds-mcp.js"
+    "nds-mcp": "bin/nds-mcp.js"
   },
   "files": [
     "dist",
@@ -65,6 +65,6 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/fkguo/nds-mcp.git"
+    "url": "git+https://github.com/fkguo/nds-mcp.git"
   }
 }
