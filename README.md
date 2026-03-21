@@ -18,6 +18,14 @@ Optional tools `JENDL-5` / `EXFOR` use separate SQLite files and are auto-downlo
 Maintainer ingest support also includes `FENDL-3.2c` and `IRDFF-II` optional SQLite files.
 `CODATA` is bundled inside `nds.sqlite`.
 
+## Using nds-mcp through AI agents
+
+1. **Register the server** in your client using the same launch command as [Quick Start](#quick-start) (see [Configuration](#configuration) for Cursor, Claude Code, VS Code, Codex, OpenCode, and others).
+2. **Ask questions in chat.** The agent chooses MCP tools based on your request; you do not need to call tools manually.
+3. **Discovery workflow:** start with `nds_info` (data versions, optional DB status) and `nds_catalog` (what is installed and how to query it). When one physical quantity appears in more than one source, tools return **source-tagged** values by default; see [Cross-Source Rule](#cross-source-rule).
+4. **Downloads:** the main `nds.sqlite` file is fetched on first server startup (see Quick Start). Optional SQLite files are downloaded the first time a tool needs them (see [Optional DB auto-download trigger](#optional-db-auto-download-trigger)).
+5. **Requirements:** Node.js **18+** and the **`sqlite3` CLI** on your `PATH`. The server runs queries via the SQLite command-line tool (not an embedded Node binding).
+
 ## Databases
 
 | SQLite file | Default path | Download behavior | Includes |
@@ -342,6 +350,7 @@ so users/agents don't need to memorize MT codes.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `NDS_TOOL_MODE` | `standard` | Tool exposure: `standard` (default) or `full`. `full` additionally exposes `nds_self_update` (npm self-update; requires explicit `confirm` in tool args). Restart MCP clients after updating the package. |
 | `NDS_DB_PATH` | `~/.nds-mcp/nds.sqlite` | Database path. Set to skip auto-download. |
 | `NDS_JENDL5_DB_PATH` | `~/.nds-mcp/jendl5.sqlite` | Optional JENDL-5 database path (auto-downloaded on first use if unset). |
 | `NDS_JENDL5_DB_DOWNLOAD_URL` | GitHub Releases latest | Override auto-download URL for `jendl5.sqlite`. |
