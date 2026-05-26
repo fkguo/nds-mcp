@@ -2,7 +2,7 @@
 
 Nuclear Data Services MCP server — offline SQLite-backed nuclear physics data for AI agents.
 
-Provides standard-mode tools covering atomic masses (AME2020), nuclear properties (NUBASE2020), charge radii (IAEA + laser spectroscopy), energy levels and gamma transitions (ENSDF), light nuclei resonance data (TUNL, A=3–20), bibliographic references, JENDL-5 decay/cross-section data, EXFOR experimental data, CODATA fundamental constants, update checks, plus discovery/query helpers (`nds_catalog`, `nds_schema`, `nds_query`).
+Provides standard-mode tools covering atomic masses (AME2020), nuclear properties (NUBASE2020), charge radii (IAEA + laser spectroscopy), energy levels and gamma transitions (ENSDF), light nuclei resonance data (TUNL, A=4–20), bibliographic references, JENDL-5 decay/cross-section data, EXFOR experimental data, CODATA fundamental constants, update checks, plus discovery/query helpers (`nds_catalog`, `nds_schema`, `nds_query`).
 
 ## Quick Start
 
@@ -30,7 +30,7 @@ Maintainer ingest support also includes `FENDL-3.2c` and `IRDFF-II` optional SQL
 
 | SQLite file | Default path | Download behavior | Includes |
 |-------------|--------------|-------------------|----------|
-| `nds.sqlite` | `~/.nds-mcp/nds.sqlite` | Auto-download on server startup *(required)* | AME2020 masses + reaction Q-values; NUBASE2020 nuclear properties; charge radii (IAEA + Li2021 laser spectroscopy); ENSDF (levels, gammas, decay feedings, references); TUNL light-nuclei resonance/level data (A=3–20); CODATA fundamental constants |
+| `nds.sqlite` | `~/.nds-mcp/nds.sqlite` | Auto-download on server startup *(required)* | AME2020 masses + reaction Q-values; NUBASE2020 nuclear properties; charge radii (IAEA + Li2021 laser spectroscopy); ENSDF (levels, gammas, decay feedings, references); TUNL light-nuclei resonance/level data (A=4–20); CODATA fundamental constants |
 | `jendl5.sqlite` *(optional)* | `~/.nds-mcp/jendl5.sqlite` | Auto-download on first call to JENDL-5 tools | JENDL-5 decay data + radiation spectra; JENDL-5 pointwise cross sections + ENDF-6 interpolation laws |
 | `exfor.sqlite` *(optional)* | `~/.nds-mcp/exfor.sqlite` | Auto-download on first call to EXFOR tools | EXFOR experimental data points (SIG/MACS/...) + per-entry metadata |
 | `fendl32c.sqlite` *(optional, maintainer ingest)* | `~/.nds-mcp/fendl32c.sqlite` | Built via `nds-mcp ingest --fendl` (status visible in `nds_info`) | FENDL-3.2c evaluated ENDF-6 data for transport applications (photo-atomic, neutron, proton, deuteron) + embedded upstream zip archives (raw ENDF retained for MF/MT beyond what is normalized into tables) |
@@ -45,7 +45,7 @@ You can always bring your own files by setting `NDS_DB_PATH` / `NDS_JENDL5_DB_PA
 - **AME2020**: Atomic Mass Evaluation 2020 (atomic masses, separation energies, Q-values).
 - **NUBASE2020**: Nuclear properties/decay evaluation (half-lives, spins, decay modes, isomers).
 - **ENSDF**: Evaluated Nuclear Structure Data File (levels, gamma transitions, decay feedings).
-- **TUNL**: Triangle Universities Nuclear Laboratory (light nuclei level/resonance tables, A=3–20).
+- **TUNL**: Triangle Universities Nuclear Laboratory (light nuclei level/resonance tables, A=4–20).
 - **JENDL-5**: Japanese Evaluated Nuclear Data Library v5 (evaluated nuclear data).
 - **EXFOR**: Experimental Nuclear Reaction Data (experimental points + metadata).
 - **FENDL-3.2c**: Fusion Evaluated Nuclear Data Library (transport-focused evaluated ENDF-6 sets).
@@ -175,7 +175,7 @@ The server communicates over stdin/stdout (MCP protocol). Diagnostic messages go
 | IAEA (Angeli & Marinova 2013) | `charge_radii` | RMS charge radii |
 | Li et al. 2021 | `laser_radii`, `laser_radii_refs` | Laser spectroscopy charge radii with per-isotope references |
 | ENSDF | `ensdf_levels`, `ensdf_gammas`, `ensdf_decay_feedings`, `ensdf_datasets`, `ensdf_references` | Nuclear structure: levels, gamma transitions, decay feedings |
-| TUNL | `tunl_levels` | Light nuclei (A=3–20) energy levels, resonance widths, isospin, decay modes (59 nuclides, 2512 levels) |
+| TUNL | `tunl_levels` | Light nuclei (A=4–20) energy levels, resonance widths, isospin, decay modes (59 nuclides, 2512 levels) |
 | JENDL-5 Decay *(optional, `jendl5.sqlite`)* | `jendl5_decays`, `jendl5_decay_modes`, `jendl5_radiation` | Decay data + radiation spectra |
 | JENDL-5 XS *(optional, `jendl5.sqlite`)* | `jendl5_xs_meta`, `jendl5_xs_points`, `jendl5_xs_interp` | Pointwise cross sections + ENDF-6 interpolation laws |
 | EXFOR *(optional, `exfor.sqlite`)* | `exfor_entries`, `exfor_points` | Experimental data points (SIG/MACS/...) |

@@ -2,26 +2,36 @@
 
 This is a lightweight development plan for `nds-mcp` (not user-facing).
 
+## Recently completed (retro)
+
+Status snapshot as of doc audit on 2026-05-26. Cross-check `~/.nds-mcp/*_meta` and `git log` before relying on this.
+
+- ✅ **Phase-2 DB releases live**: `jendl5.sqlite` (2.1 GB, 30.4 M XS points) and `exfor.sqlite` (528 MB, 7.1 M points) are auto-downloadable from GitHub Releases; `ensureJendl5Db()` / `ensureExforDb()` succeed from clean `~/.nds-mcp/`.
+- ✅ **Optional DB meta standardized**: all six DBs (`nds`, `jendl5`, `exfor`, `ddep`, `fendl32c`, `irdff2`) carry the metaContract keys (`schema_version`, `built_at`, `generator`, `generator_version`, `source_kind`, `upstream_name`, `upstream_url`, `upstream_version_or_snapshot`).
+- ✅ **JENDL-5 XS direct-ingest pipeline**: maintainers rebuild from upstream `jendl5-n-300K.tar.gz` (or extracted dir / single ENDF / `.gz`) with no JSON/JSONL conversion step.
+- ✅ **Universal query Phase 1+2**: `nds_schema`, `nds_query` (BLOB forbidden, `*_points` selectivity guard), `nds_catalog` (libraries + quantities surface), `nds_list_raw_archives` (FENDL/IRDFF metadata only).
+- ✅ **FENDL-3.2c + IRDFF-II ingest**: ENDF-6 evaluated XS + embedded upstream zip archives (BLOBs) in `fendl32c.sqlite` (10,722 XS channels, 607 archives) and `irdff2.sqlite` (139 channels, 70 archives). Maintainer-built (no public auto-download asset yet).
+- ✅ **CODATA 2022**: 355 constants merged into `nds.sqlite` with separate `codata_meta`; tools `nds_get_constant` / `nds_list_constants` exposed in standard mode.
+- ⚠️ **DDEP scaffolded only**: `ddep.sqlite` + `nds_get_ddep_decay` tool exist, but current ingest is a stub (2 nuclides + 3 lines). Tool is double-gated (`NDS_TOOL_MODE=full` AND `NDS_ENABLE_DDEP=1`) until real ingest lands — see "Stepwise ingestion plan → Step 1" below.
+
 ## Now (minimal, high-impact)
 
-1) **Make Phase-2 DB releases real**
-   - Upload `jendl5.sqlite` / `exfor.sqlite` assets to GitHub Releases so the on-demand auto-download paths work.
-   - Done when: `ensureJendl5Db()` / `ensureExforDb()` succeeds from a clean `~/.nds-mcp/` on macOS/Linux.
+1) **Close the FENDL/IRDFF operational loop**
+   - `scripts/check-db.sh` doesn't yet validate `fendl32c.sqlite` / `irdff2.sqlite` (only `main|jendl5|exfor|ddep`).
+   - `scripts/release-phase2-dbs.sh` has no `--fendl` / `--irdff` upload flow.
+   - `package.json` has no `ingest:fendl` / `ingest:irdff` shortcut; must use raw `pnpm exec tsx src/index.ts ingest --fendl ...`.
+   - Done when: check-db understands `fendl|irdff`, release script can publish both as `*.sqlite.gz`, and shortcut scripts exist. Until then, FENDL/IRDFF violate the "Release gating (required)" policy in CLAUDE.md for any future public release.
 
-2) **Preserve + standardize optional DB meta**
-   - Ensure `jendl5_meta` / `exfor_meta` always contain upstream/source/version keys (not just `schema_version`/`built_at`).
-   - When importing an existing EXFOR sqlite, copy `exfor_meta` if present (instead of overwriting with minimal keys).
-   - Done when: `nds_info` consistently returns meaningful `jendl5_meta` / `exfor_meta` fields.
-
-3) **Keep JENDL-5 XS full-build pipeline healthy**
-   - Maintain direct ingest path from official JENDL-5 300K ENDF-6 archives (`.tar.gz` with `.dat.gz`) and equivalent extracted directories/single ENDF files.
-   - Done when: maintainers can rebuild `jendl5.sqlite` (XS) from upstream archives without any hand-prepared JSON/JSONL conversion step.
-
-4) **Universal query roadmap (agent-friendly, “complete info” without full MF/MT normalization)**
-   - Phase 1 (done in code): `nds_schema` + `nds_query` for safe schema discovery + structured queries (BLOB forbidden; points-table selectivity guard).
-   - Phase 2 (done in code): `nds_catalog` + `nds_list_raw_archives` (raw archive metadata only; never returns BLOB payloads).
-   - Next: implement `nds_export_raw_archive` (full) and ENDF section tools (`nds_endf_list_sections`, `nds_endf_get_section`) for MF/MT-level locating/reading without fully normalizing all ENDF files.
+2) **Universal query Phase 3 (raw ENDF access without full normalization)**
+   - `nds_export_raw_archive` (full-mode tool) — return the upstream zip archive bytes for a given `rel_path`/`sha256` from `fendl_raw_archives` / `irdff_raw_archives`.
+   - ENDF section tools `nds_endf_list_sections` + `nds_endf_get_section` — let agents locate/read MF/MT slices inside the embedded zips without ingesting every MF/MT into normalized tables.
    - Docs: keep README acronym/glossary explanations up-to-date (ENDF/MAT/MF/MT, SIG/MACS, etc.).
+
+3) **DDEP real ingest** (see Stepwise Step 1)
+   - Replace the 2-nuclide stub with the full LNHB evaluated table set so the tool can leave `NDS_ENABLE_DDEP`-gated mode.
+
+4) **Doc-script consistency policy**
+   - When CLAUDE.md / DATABASE.md / RUNBOOK.md add a new optional DB, the same PR must also update `scripts/check-db.sh`, `scripts/release-phase2-dbs.sh`, and `package.json` scripts. The current FENDL/IRDFF gap (item 1) is what this policy is meant to prevent next time.
 
 ## Later (new data sources)
 
@@ -95,10 +105,13 @@ The following candidates were **not explicitly included** there and are now reco
 
 ### Step 1 — DDEP first (small, high-value)
 
-- Build `ddep.sqlite` as optional DB.
-- Add tools focused on decay observables not already covered by current JENDL path:
-  half-life reference set, key gamma lines, emission intensities with metrology provenance.
-- Add `ddep_meta` and expose in `nds_info`.
+Status (2026-05-26): **scaffolded, content pending**. Schema (`ddep_nuclides`, `ddep_radiation`, `ddep_meta`), ingest path (`pnpm exec tsx src/index.ts ingest --ddep --source <jsonl>`), tool (`nds_get_ddep_decay`), and `nds_info` surfacing all exist; the shipped `ddep.sqlite` is a 2-nuclide stub gated behind `NDS_TOOL_MODE=full` + `NDS_ENABLE_DDEP=1`.
+
+Remaining work:
+
+- Replace the stub JSONL input with the full LNHB DDEP recommended-table corpus (nuclide-by-nuclide pull; not ENDF-style bulk).
+- Verify cross-source parity against JENDL-5 decay tools for shared radionuclides.
+- Drop the `NDS_ENABLE_DDEP` env-var gate once content is real and DDEP visibility decision is finalized in CLAUDE.md.
 
 ### Step 2 — JEFF-3.3 (evaluated cross-section parity source)
 

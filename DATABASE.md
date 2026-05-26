@@ -17,6 +17,8 @@
 | IAEA charge radii | IAEA-2024 | 957 | RMS nuclear charge radii |
 | Li et al. 2021 | Li2021 | 257 radii, 351 citation links | Laser spectroscopy charge radii |
 | ENSDF | ENSDF-2024 | 6,361 datasets, 233,659 levels, 389,371 gammas, 26,448 feedings, 48,836 references | Evaluated Nuclear Structure Data |
+| TUNL | TUNL-2024 | 2,512 levels across 59 light nuclides | Light-nuclei energy levels (A=4–20): resonance widths, isospin, decay modes |
+| CODATA 2022 | CODATA-2022 | 355 constants | Recommended fundamental constants (value/uncertainty/unit, exact/truncated flags) |
 
 Database size: ~85 MB.
 
@@ -28,8 +30,11 @@ Coverage varies by source:
 | ENSDF | 1–118 | 1–295 | No neutron (Z=0) entry |
 | Charge radii | 0–96 | 1–248 | Far fewer nuclides (957); includes neutron |
 | Laser radii | 4–88 | 7–233 | 21 elements, 257 isotopes (Be through Ra) |
+| TUNL | 1–11 | 4–20 | 59 light nuclides (H-4 through Na-20); 9 TUNL evaluations from 1991–2017 |
+| CODATA | — | — | Topical (constants, not nuclide-indexed) |
 
 The `nds_meta` table stores version strings and row counts as key-value pairs.
+CODATA carries its own `codata_meta` table (provenance + upstream version snapshot).
 
 ---
 
@@ -735,6 +740,61 @@ decay dataset. Use `LEFT JOIN` when joining to `ensdf_levels`.
 
 ---
 
+### `tunl_levels` — Light-Nuclei Energy Levels (TUNL)
+
+Primary key: `tunl_level_id` (AUTOINCREMENT). Coverage: Z=1–11, A=4–20 (59 nuclides, 2,512 levels).
+
+Source: TUNL Nuclear Data Evaluation Project, https://nucldata.tunl.duke.edu/.
+Ingested from `pdftotext -layout` output of the per-A PDF tables; 9 distinct
+TUNL evaluation tags span 1991–2017 (`1991AJ01`, `1992TI02`, `1993TI07`,
+`1995TI07`, `1998TI06`, `2002TI10`, `2004TI06`, `2012KE01`, `2017KE05`).
+
+| Column | Type | Unit | Description |
+|--------|------|------|-------------|
+| `tunl_level_id` | INTEGER PK | — | Auto-incrementing ID (not stable across rebuilds) |
+| `Z` | INTEGER | — | Proton number |
+| `A` | INTEGER | — | Mass number |
+| `element` | TEXT | — | Element symbol (title-case) |
+| `energy_keV` | REAL | keV | Excitation energy |
+| `energy_unc_keV` | REAL | keV | Uncertainty (NULL if not quoted) |
+| `energy_raw` | TEXT | — | Original TUNL energy string (preserves notation like `Ex` references) |
+| `spin_parity` | TEXT | — | Jπ string. Half-integer forms like `3/2-` allowed; parentheses denote tentative assignments (same convention as ENSDF) |
+| `isospin` | TEXT | — | Isospin T (e.g. `1/2`, `1`); NULL if not reported |
+| `width_keV` | REAL | keV | Total width Γ (already converted from MeV when source table used MeV units) |
+| `width_unc_keV` | REAL | keV | Width uncertainty |
+| `width_raw` | TEXT | — | Original width string from TUNL |
+| `width_relation` | TEXT | — | One of `=`, `<`, `≤`, `≈`, `broad`, `calc` (see caveat below) |
+| `half_life` | TEXT | — | Half-life string (only when TUNL quotes τ instead of Γ) |
+| `decay_modes` | TEXT | — | Free-text decay-mode summary (e.g. `n,γ`, `p`, `α`) |
+| `evaluation` | TEXT | — | TUNL evaluation tag (year+lab code) sourced from the PDF header |
+| `table_label` | TEXT | — | TUNL table identifier (e.g. `Table 5.1`) — useful for citing exact provenance |
+
+**Caveats:**
+- **`width_relation` is required reading.** Of 1,435 rows with a width, 1,211
+  use `=` (firm value), 98 use `≈` (approximate), 37 use `<`, 30 use `≤`
+  (upper limits), 28 use `broad` (so broad that only an order-of-magnitude is
+  meaningful), and 1 is `calc` (theoretical). Naive numeric comparisons that
+  ignore `width_relation` will mis-treat upper limits and broad states as
+  measured widths.
+- **`A=3` is intentionally absent.** TUNL publishes A=3 tables separately; the
+  current ingest scans only the A=4–20 set. There is no A=3 row even though
+  CLAUDE.md historical text once mentioned A=3.
+- **TUNL widths are converted to keV at ingest time** based on detected header
+  units (`Γcm (MeV)` vs `Γcm (keV)`); `width_raw` preserves the original
+  representation for audit.
+- **Half-life is sparse**: TUNL usually quotes Γ for unbound states and τ for
+  bound states; only one of `width_keV` / `half_life` is typically populated
+  per row.
+- **`evaluation` provenance**: when comparing against other compilations
+  (AME / ENSDF / NUBASE), older TUNL years (1991–1995) often reflect inputs
+  that have since been superseded — prefer the latest TUNL evaluation per
+  nuclide when discrepancies appear.
+- **Merged into `nds_query_levels`**: the `NDS_QUERY_LEVELS` tool merges TUNL
+  with ENSDF for A ≤ 20 by default; each result row carries a `source` field
+  (`ENSDF` or `TUNL`) so callers can split if needed.
+
+---
+
 ## Spin-Parity (`spin_parity`) Conventions
 
 The `spin_parity` column in `ensdf_levels` (and `nubase`) is a **raw ENSDF
@@ -940,6 +1000,59 @@ See the `ame_masses` caveats for the full derivation.
 
 ---
 
+### `codata_constants` — CODATA 2022 Fundamental Constants
+
+Primary key: `id` (AUTOINCREMENT). Unique key: `quantity_key`. 355 rows.
+
+Source: NIST `allascii.txt` table, CODATA 2022 adjustment
+(https://physics.nist.gov/cuu/Constants/Table/allascii.txt). Ingested via
+`pnpm exec tsx src/index.ts ingest --codata` (downloads from NIST when no
+local source is given). Provenance lives in the sibling `codata_meta` table.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | Auto-incrementing ID (not stable across rebuilds) |
+| `quantity` | TEXT | Original CODATA quantity name (e.g. `Planck constant`) |
+| `quantity_key` | TEXT UNIQUE | Lowercased canonical key (e.g. `planck constant`); use this for case-insensitive joins |
+| `value_text` | TEXT | Value as the upstream string, preserving NIST formatting (e.g. `6.626 070 15 x 10^-34`, `299 792 458`) |
+| `uncertainty_text` | TEXT | Uncertainty string. `(exact)` for SI-defining constants; otherwise standard error in same precision as `value_text` |
+| `unit` | TEXT | SI unit string with `^` for powers and space separators (e.g. `J Hz^-1`, `m s^-1`) |
+| `is_exact` | INTEGER | 1 = exactly defined by SI (post-2019 redefinition: c, h, e, k_B, N_A, Δν_Cs, K_cd) or by definition (e.g. atomic-unit identities). 0 = measured. |
+| `is_truncated` | INTEGER | 1 = CODATA publishes a *truncated decimal* representation (e.g. derived constants with infinite repeating tails). 0 = stored at full CODATA precision. |
+
+Breakdown (355 total): 274 measured (`is_exact=0,is_truncated=0`), 19 exact
+(`1/0`), 62 exact-but-truncated (`1/1`).
+
+**Caveats:**
+- **`value_text` is stored verbatim from CODATA**, including its space-separated
+  digit grouping and `x 10^N` exponent notation. Parse to a numeric value with
+  care: strip spaces and convert `x 10^` to `e`. The intent of preserving the
+  raw text is to keep the exact precision NIST publishes; numeric conversion
+  loses trailing zeros and can introduce float rounding.
+- **`uncertainty_text` is `(exact)` for SI-defining constants** — handle that
+  string case before attempting numeric parsing.
+- **`is_exact=1, is_truncated=1` is meaningful**: the relation is exact by
+  definition but CODATA chose to publish a truncated decimal. Treat these as
+  exact for symbolic reasoning, but be aware the stored decimals are not the
+  full value.
+- **Unit format is the NIST style**, not UCUM. Powers use `^` (`m^2`), inverse
+  units use `^-1` (`m^-1`), and compound units are space-separated. Convert
+  before sending to UCUM-strict consumers.
+- **No timestamp on per-row level**; release tag (`codata_release=2022`) lives
+  in `codata_meta` only.
+- **Tools**: `NDS_GET_CONSTANT` (single lookup) is case-insensitive by default
+  on `quantity_key`; `NDS_LIST_CONSTANTS` supports keyword filter + `exact_only`.
+
+### `codata_meta`
+
+Same shape as `nds_meta`: a key/value provenance store. Required keys:
+`codata_release`, `codata_source_url`, `schema_version`, `built_at`,
+`generator`, `generator_version`, `source_kind`, `upstream_name`,
+`upstream_url`, `upstream_version_or_snapshot`. Surfaced by `nds_info` and
+`nds_catalog` so agents can verify which CODATA adjustment is in use.
+
+---
+
 ## Indexes
 
 The following indexes exist for efficient querying:
@@ -968,6 +1081,11 @@ The following indexes exist for efficient querying:
 | `idx_ensdf_feedings_parent` | ensdf_decay_feedings | parent_Z, parent_A |
 | `idx_ensdf_feedings_dataset` | ensdf_decay_feedings | dataset_id |
 | `idx_ensdf_feedings_mode` | ensdf_decay_feedings | decay_mode |
+| `idx_tunl_levels_za_energy` | tunl_levels | Z, A, energy_keV |
+| `idx_tunl_levels_element` | tunl_levels | element |
+| `idx_tunl_levels_jpi` | tunl_levels | spin_parity |
+| `idx_tunl_levels_isospin` | tunl_levels | isospin |
+| `idx_codata_quantity` | codata_constants | quantity |
 
 **Typical query patterns** that are well-indexed:
 - Look up by Z, A -> all ENSDF tables
@@ -1057,7 +1175,16 @@ ORDER BY diff_keV DESC LIMIT 10;
 | ENSDF | https://www.nndc.bnl.gov/ensdf/ | Public domain (US DOE) |
 | IAEA charge radii | https://www-nds.iaea.org/radii/ | Academic use |
 | Li et al. 2021 | https://doi.org/10.1016/j.adt.2021.101440 | Academic use (ADNDT) |
+| TUNL Nuclear Data Evaluation | https://nucldata.tunl.duke.edu/ | Academic use |
+| CODATA 2022 | https://physics.nist.gov/cuu/Constants/ | Public domain (NIST) |
 
 Built from raw data files using `npx tsx src/ingest/buildDb.ts`. ENSDF files are
 the 300-file set distributed by NNDC (ensdf.001–ensdf.300), totaling ~294 MB of
-80-column fixed-width ASCII.
+80-column fixed-width ASCII. TUNL inputs are `pdftotext -layout` dumps of the
+per-A PDF tables; CODATA is ingested from `allascii.txt` (downloaded from NIST
+when no local file is given).
+
+This reference covers only the main `nds.sqlite` database. Schemas for the
+optional DBs (`jendl5.sqlite`, `exfor.sqlite`, `fendl32c.sqlite`,
+`irdff2.sqlite`, `ddep.sqlite`) are discoverable at runtime via `nds_schema`
+and `nds_catalog`; their provenance lives in each DB's own `*_meta` table.
