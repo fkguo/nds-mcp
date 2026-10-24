@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+title: "nds-mcp: Nuclear Data Services MCP server"
+abstract: "Offline SQLite-backed MCP server for nuclear data: AME2020 masses, NUBASE2020 properties and decay, charge radii, ENSDF levels/gammas/feedings, TUNL light nuclei, JENDL-5 cross sections and spectra, EXFOR points, and CODATA constants, with source-tagged values."
+authors:
+  - family-names: Guo
+    given-names: Feng-Kun
+    affiliation: "Institute of Theoretical Physics, Chinese Academy of Sciences"
+version: 0.2.1
+date-released: 2026-10-24
+license: MIT
+repository-code: "https://github.com/fkguo/nds-mcp"
+doi: "10.5281/zenodo.23612352"
+keywords:
+  - nuclear data
+  - Model Context Protocol
+  - MCP
+  - AME2020
+  - NUBASE2020
+  - ENSDF
+  - EXFOR
+  - JENDL-5

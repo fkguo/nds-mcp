@@ -390,6 +390,26 @@ scripts/release-phase2-dbs.sh --tag <tag> --repo fkguo/nds-mcp --jendl5 ~/.nds-m
 
 Rule: build sqlite first, verify it locally, then upload release asset.
 
+## Citation
+
+If you use nds-mcp in academic work, cite the archived release:
+
+- All versions (concept DOI): [10.5281/zenodo.23612352](https://doi.org/10.5281/zenodo.23612352)
+- v0.2.1: [10.5281/zenodo.23612353](https://doi.org/10.5281/zenodo.23612353)
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23612352.svg)](https://doi.org/10.5281/zenodo.23612352)
+
+```bibtex
+@software{guo_nds_mcp,
+  author    = {Guo, Feng-Kun},
+  title     = {nds-mcp: Nuclear Data Services MCP server},
+  version   = {0.2.1},
+  year      = {2026},
+  doi       = {10.5281/zenodo.23612352},
+  url       = {https://github.com/fkguo/nds-mcp}
+}
+```
+
 ## License
 
 MIT
