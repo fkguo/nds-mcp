@@ -20,7 +20,7 @@ const TOOL_MODE: ToolExposureMode = process.env.NDS_TOOL_MODE === 'full' ? 'full
 const server = new Server(
   {
     name: 'nds-mcp',
-    version: '0.2.0',
+    version: '0.2.1',
   },
   {
     capabilities: {

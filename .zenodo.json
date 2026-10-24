@@ -1,0 +1,27 @@
+{
+  "title": "nds-mcp: Nuclear Data Services MCP server",
+  "description": "nds-mcp is an offline SQLite-backed MCP server for nuclear data. It exposes atomic masses (AME2020), nuclear properties and decay data (NUBASE2020), charge radii, ENSDF levels, gamma transitions and decay feedings, TUNL light-nuclei levels, JENDL-5 cross sections and radiation spectra, EXFOR data points, and CODATA fundamental constants through a uniform tool interface. Values are source-tagged: when a quantity exists in several sources, every source value is returned together with a recommended value rather than a silent merge. This release is a metadata and citation release and has no functional changes. The data assets (nds.sqlite.gz, jendl5.sqlite.gz, exfor.sqlite.gz, fendl32c.sqlite.gz, irdff2.sqlite.gz) are distributed through GitHub Releases and are not part of this source archive.",
+  "creators": [
+    {
+      "name": "Guo, Feng-Kun",
+      "affiliation": "Institute of Theoretical Physics, Chinese Academy of Sciences"
+    }
+  ],
+  "license": "MIT",
+  "upload_type": "software",
+  "access_right": "open",
+  "version": "0.2.1",
+  "language": "eng",
+  "keywords": [
+    "nuclear data",
+    "Model Context Protocol",
+    "MCP",
+    "AME2020",
+    "NUBASE2020",
+    "ENSDF",
+    "EXFOR",
+    "JENDL-5",
+    "CODATA"
+  ],
+  "notes": "Data assets are distributed via GitHub Releases; the data release remains v0.2.0. This source release is intentionally not marked latest so that releases/latest/download keeps resolving to the data assets."
+}
